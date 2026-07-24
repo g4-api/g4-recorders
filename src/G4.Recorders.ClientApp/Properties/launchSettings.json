@@ -1,0 +1,8 @@
+{
+	"profiles": {
+		"G4.Recorders.ClientApp": {
+			"commandName": "Project",
+			"commandLineArgs": "--uia --no-chromium --verbose"
+		}
+	}
+}

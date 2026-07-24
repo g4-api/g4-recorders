@@ -1,0 +1,152 @@
+<Window x:Class="G4.Recorders.Uia.PathFinder.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        WindowStyle="ToolWindow"
+        Title="G4 Recorders Path Finder v1.0"
+        ResizeMode="NoResize"
+        Height="290"
+        Width="370">
+    <Grid>
+        <Label Content="G4 Recorders Path Finder v1.0"
+               HorizontalAlignment="Left"
+               Margin="10,10,0,0"
+               VerticalAlignment="Top"
+               Height="40"
+               Width="330"
+               FontSize="22"
+               FontWeight="Bold"/>
+
+        <TextBox HorizontalAlignment="Left"
+                 Margin="10,55,0,0"
+                 TextWrapping="Wrap"
+                 VerticalAlignment="Top"
+                 Width="330"
+                 Name="TxbPath"
+                 Height="76"
+                 VerticalScrollBarVisibility="Auto"
+                 HorizontalScrollBarVisibility="Auto"/>
+
+        <Button Content="▶ _Start"
+                HorizontalAlignment="Left"
+                Margin="10,162,0,0"
+                VerticalAlignment="Top"
+                RenderTransformOrigin="-0.57,1.481"
+                Height="30"
+                Width="70"
+                Name="BtnStartStop"
+                Click="BtnStartStop_Click"
+                AccessKeyManager.AccessKeyPressed="BtnStartStop_AccessKeyPressed"
+                Cursor="Hand"/>
+
+        <Button Content="_Test Path"
+                HorizontalAlignment="Left"
+                Margin="160,162,0,0"
+                VerticalAlignment="Top"
+                RenderTransformOrigin="-0.57,1.481"
+                Height="30"
+                Width="70"
+                Name="BtnTestPath"
+                Click="BtnTestPath_Click"
+                AccessKeyManager.AccessKeyPressed="BtnTestPath_AccessKeyPressed"
+                Cursor="Hand"/>
+
+        <Button Content="_Toggle Path"
+                HorizontalAlignment="Left"
+                Margin="235,162,0,0"
+                VerticalAlignment="Top"
+                RenderTransformOrigin="-0.57,1.481"
+                Height="30"
+                Width="70"
+                Name="BtnTogglePath"
+                Click="BtnTogglePath_Click"
+                AccessKeyManager.AccessKeyPressed="BtnTogglePath_AccessKeyPressed"
+                Cursor="Hand"/>
+
+        <Label Content="Idle"
+               HorizontalAlignment="Left"
+               Margin="11,133,0,0"
+               Name="LblStatus"
+               VerticalAlignment="Top"
+               RenderTransformOrigin="0.405,-0.33"
+               Width="55"
+               Visibility="Visible"
+               FontSize="9"/>
+
+        <Label Content="0000.000s"
+               HorizontalAlignment="Left"
+               Margin="70,133,0,0"
+               Name="LblTime"
+               VerticalAlignment="Top"
+               RenderTransformOrigin="0.405,-0.33"
+               Width="70"
+               Visibility="Visible"
+               FontSize="9"/>
+
+        <Label Content="Faster"
+               HorizontalAlignment="Left"
+               Margin="11,200,0,0"
+               VerticalAlignment="Top"
+               RenderTransformOrigin="0.405,-0.33"/>
+
+        <Slider HorizontalAlignment="Left"
+                Margin="52,207,0,0"
+                VerticalAlignment="Top"
+                Width="246"
+                Minimum="500"
+                Maximum="3000"
+                Value="1000"
+                Name="SldRefreshSpeed" ValueChanged="SldRefreshSpeed_ValueChanged"/>
+
+        <Label Content="Slower"
+               HorizontalAlignment="Left"
+               Margin="297,200,0,0"
+               VerticalAlignment="Top"
+               RenderTransformOrigin="0.263,0.21" Height="26" Width="45"/>
+
+        <Label Content="X:"
+               HorizontalAlignment="Left"
+               Margin="196,131,0,0"
+               VerticalAlignment="Top"
+               RenderTransformOrigin="-6.268,-0.931"/>
+
+        <TextBox HorizontalAlignment="Left"
+                 Margin="221,135,0,0"
+                 TextWrapping="Wrap"
+                 VerticalAlignment="Top"
+                 Width="45"
+                 Name="TxbAxisX"/>
+
+        <Label Content="Y:"
+               HorizontalAlignment="Left"
+               Margin="271,131,0,0"
+               VerticalAlignment="Top"/>
+
+        <TextBox HorizontalAlignment="Left"
+                 Margin="295,136,0,0"
+                 TextWrapping="Wrap"
+                 VerticalAlignment="Top"
+                 Width="45"
+                 Name="TxbAxisY"/>
+
+        <Button Content="Set _Position"
+                HorizontalAlignment="Left"
+                Margin="85,162,0,0"
+                VerticalAlignment="Top"
+                Height="30"
+                Width="70"
+                Name="BtnSetPosition"
+                Click="BtnSetPosition_Click"
+                AccessKeyManager.AccessKeyPressed="BtnSetPosition_AccessKeyPressed"
+                Cursor="Hand"/>
+
+        <Label Content=""
+               HorizontalAlignment="Left"
+               Margin="350,238,0,0"
+               Name="LblHidden"
+               VerticalAlignment="Top"
+               Visibility="Hidden"/>
+    </Grid>
+</Window>

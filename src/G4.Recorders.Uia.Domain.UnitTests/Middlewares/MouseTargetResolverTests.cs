@@ -1,0 +1,266 @@
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+using System;
+using System.Collections.Generic;
+
+using G4.Recorders.Uia.Domain.Middlewares;
+using G4.Recorders.Uia.Domain.Models;
+
+namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
+{
+    [TestClass]
+    [TestCategory(nameof(MouseTargetResolver))]
+    [TestCategory("UnitTest")]
+    public sealed class MouseTargetResolverTests
+    {
+        [TestMethod(DisplayName = "Verify that clearing retained targets restores release fallback")]
+        public void MouseTargetClearRestoresReleaseFallbackTest()
+        {
+            // Arrange: provide distinct press and fallback chains.
+            var pressedChain = NewChain("pressed");
+            var fallbackChain = NewChain("fallback");
+            var repository = new FakeUiaRecorderRepository(pressedChain, fallbackChain);
+            var resolver = new MouseTargetResolver(repository);
+            resolver.ResolveDown(MouseButton.Left, x: 10, y: 20);
+
+            // Act: clear retained state before resolving the release.
+            resolver.Clear();
+            var resolution = resolver.ResolveUp(MouseButton.Left, x: 10, y: 20);
+
+            // Assert: verify that the release uses a fresh coordinate lookup.
+            Assert.AreSame(fallbackChain, resolution.Chain);
+            Assert.IsTrue(resolution.UsedFallback);
+            Assert.AreEqual(2, repository.PointPeekCount);
+        }
+
+        [TestMethod(DisplayName = "Verify that mouse buttons retain independent press targets")]
+        public void MouseTargetIndependentButtonsTest()
+        {
+            // Arrange: provide a separate chain for each pressed button.
+            var leftChain = NewChain("left");
+            var rightChain = NewChain("right");
+            var repository = new FakeUiaRecorderRepository(leftChain, rightChain);
+            var resolver = new MouseTargetResolver(repository);
+
+            // Act: press both buttons and release them in reverse order.
+            resolver.ResolveDown(MouseButton.Left, x: 10, y: 20);
+            resolver.ResolveDown(MouseButton.Right, x: 30, y: 40);
+            var rightResolution = resolver.ResolveUp(MouseButton.Right, x: 30, y: 40);
+            var leftResolution = resolver.ResolveUp(MouseButton.Left, x: 10, y: 20);
+
+            // Assert: verify that each release receives its own press-time target.
+            Assert.AreSame(rightChain, rightResolution.Chain);
+            Assert.AreSame(leftChain, leftResolution.Chain);
+            Assert.IsFalse(rightResolution.UsedFallback);
+            Assert.IsFalse(leftResolution.UsedFallback);
+            Assert.AreEqual(2, repository.PointPeekCount);
+        }
+
+        [TestMethod(DisplayName = "Verify that invalid trigger bounds retain the zero offset default")]
+        public void MouseTargetOffsetInvalidBoundsReturnsZeroTest()
+        {
+            // Arrange: provide a located chain without usable trigger geometry.
+            var chain = NewChain("missing-bounds");
+
+            // Act: resolve the relative point without invoking UIA or mutating the chain.
+            var offset = MouseTargetResolver.ResolveOffset(chain, x: 140, y: 220);
+
+            // Assert: verify that incomplete geometry preserves the shared contract default.
+            Assert.AreEqual(0, offset.X);
+            Assert.AreEqual(0, offset.Y);
+        }
+
+        [TestMethod(DisplayName = "Verify that offset calculation supports negative desktop coordinates")]
+        public void MouseTargetOffsetNegativeDesktopCoordinatesTest()
+        {
+            // Arrange: place the trigger on a monitor whose physical desktop origin is negative.
+            var chain = NewTargetChain(left: -500.5, top: -300.5);
+
+            // Act: resolve the pointer displacement from the trigger's top-left corner.
+            var offset = MouseTargetResolver.ResolveOffset(chain, x: -450, y: -275);
+
+            // Assert: verify deterministic rounding after subtracting coordinates in the same physical space.
+            Assert.AreEqual(51, offset.X);
+            Assert.AreEqual(26, offset.Y);
+        }
+
+        [TestMethod(DisplayName = "Verify that offset calculation uses the trigger element bounds")]
+        public void MouseTargetOffsetUsesTriggerBoundsTest()
+        {
+            // Arrange: provide one target rectangle and a pointer position inside it.
+            var chain = NewTargetChain(left: 100, top: 200);
+
+            // Act: resolve the pointer displacement from the rectangle origin.
+            var offset = MouseTargetResolver.ResolveOffset(chain, x: 142, y: 217);
+
+            // Assert: verify that the offset records the exact element-relative click location.
+            Assert.AreEqual(42, offset.X);
+            Assert.AreEqual(17, offset.Y);
+        }
+
+        [TestMethod(DisplayName = "Verify that an orphaned mouse release uses coordinate fallback")]
+        public void MouseTargetOrphanedReleaseUsesFallbackTest()
+        {
+            // Arrange: provide the chain currently available at the release coordinates.
+            var fallbackChain = NewChain("fallback");
+            var repository = new FakeUiaRecorderRepository(fallbackChain);
+            var resolver = new MouseTargetResolver(repository);
+
+            // Act: resolve a release without a preceding press.
+            var resolution = resolver.ResolveUp(MouseButton.Middle, x: 10, y: 20);
+
+            // Assert: verify that legacy coordinate lookup remains available.
+            Assert.AreSame(fallbackChain, resolution.Chain);
+            Assert.IsTrue(resolution.UsedFallback);
+            Assert.AreEqual(1, repository.PointPeekCount);
+        }
+
+        [TestMethod(DisplayName = "Verify that a pre-resolved press target avoids post-click repository lookup")]
+        public void MouseTargetPreResolvedPressAvoidsRepositoryTest()
+        {
+            // Arrange: provide an Edit hover target and a post-click Close fallback that must remain unused.
+            var editChain = NewChain("edit");
+            var closeChain = NewChain("close");
+            var repository = new FakeUiaRecorderRepository(closeChain);
+            var resolver = new MouseTargetResolver(repository);
+
+            // Act: resolve Down from the pre-dispatch chain and then consume it on Up.
+            var downChain = resolver.ResolveDown(new MouseDownTargetRequest
+            {
+                Button = MouseButton.Left,
+                CapturedChain = editChain,
+                X = 10,
+                Y = 20
+            });
+            var upResolution = resolver.ResolveUp(MouseButton.Left, x: 10, y: 20);
+
+            // Assert: verify that both transitions retain Edit without observing post-click Close.
+            Assert.AreSame(editChain, downChain);
+            Assert.AreSame(editChain, upResolution.Chain);
+            Assert.IsFalse(upResolution.UsedFallback);
+            Assert.AreEqual(0, repository.PointPeekCount);
+        }
+
+        [TestMethod(DisplayName = "Verify that a release consumes its retained press target")]
+        public void MouseTargetReleaseConsumesPressTargetTest()
+        {
+            // Arrange: provide a press chain and a fallback for a later orphaned release.
+            var pressedChain = NewChain("pressed");
+            var fallbackChain = NewChain("fallback");
+            var repository = new FakeUiaRecorderRepository(pressedChain, fallbackChain);
+            var resolver = new MouseTargetResolver(repository);
+            resolver.ResolveDown(MouseButton.Left, x: 10, y: 20);
+
+            // Act: resolve two releases for the single retained press.
+            var pairedResolution = resolver.ResolveUp(MouseButton.Left, x: 10, y: 20);
+            var orphanedResolution = resolver.ResolveUp(MouseButton.Left, x: 10, y: 20);
+
+            // Assert: verify that only the first release can consume the pressed target.
+            Assert.AreSame(pressedChain, pairedResolution.Chain);
+            Assert.IsFalse(pairedResolution.UsedFallback);
+            Assert.AreSame(fallbackChain, orphanedResolution.Chain);
+            Assert.IsTrue(orphanedResolution.UsedFallback);
+            Assert.AreEqual(2, repository.PointPeekCount);
+        }
+
+        [TestMethod(DisplayName = "Verify that a mouse release reuses its press-time target")]
+        public void MouseTargetReleaseReusesPressTargetTest()
+        {
+            // Arrange: make a changed post-click target observable if a second lookup occurs.
+            var pressedChain = NewChain("transient-target");
+            var postClickChain = NewChain("post-click-background");
+            var repository = new FakeUiaRecorderRepository(pressedChain, postClickChain);
+            var resolver = new MouseTargetResolver(repository);
+
+            // Act: resolve the matching down and up transitions.
+            var downChain = resolver.ResolveDown(MouseButton.Left, x: 10, y: 20);
+            var upResolution = resolver.ResolveUp(MouseButton.Left, x: 10, y: 20);
+
+            // Assert: verify that release avoids the changed post-click UIA tree.
+            Assert.AreSame(pressedChain, downChain);
+            Assert.AreSame(pressedChain, upResolution.Chain);
+            Assert.IsFalse(upResolution.UsedFallback);
+            Assert.AreEqual(1, repository.PointPeekCount);
+        }
+
+        [TestMethod(DisplayName = "Verify that a repeated press replaces stale button state")]
+        public void MouseTargetRepeatedPressReplacesStaleStateTest()
+        {
+            // Arrange: provide an obsolete target followed by the latest pressed target.
+            var staleChain = NewChain("stale");
+            var latestChain = NewChain("latest");
+            var repository = new FakeUiaRecorderRepository(staleChain, latestChain);
+            var resolver = new MouseTargetResolver(repository);
+
+            // Act: resolve two presses before the matching release.
+            resolver.ResolveDown(MouseButton.Left, x: 10, y: 20);
+            resolver.ResolveDown(MouseButton.Left, x: 30, y: 40);
+            var resolution = resolver.ResolveUp(MouseButton.Left, x: 30, y: 40);
+
+            // Assert: verify that the latest press owns the released target.
+            Assert.AreSame(latestChain, resolution.Chain);
+            Assert.IsFalse(resolution.UsedFallback);
+            Assert.AreEqual(2, repository.PointPeekCount);
+        }
+
+        private static UiaChainModel NewChain(string locator)
+        {
+            return new UiaChainModel
+            {
+                Locator = locator
+            };
+        }
+
+        // Creates a single-trigger chain with explicit geometry so offset tests remain independent
+        // from UIA COM providers and deterministic across desktop environments.
+        private static UiaChainModel NewTargetChain(double left, double top)
+        {
+            return new UiaChainModel
+            {
+                Path =
+                [
+                    new UiaNodeModel
+                    {
+                        Bounds = new UiaNodeModel.BoundsRectangle
+                        {
+                            Height = 100,
+                            Left = left,
+                            Top = top,
+                            Width = 300
+                        },
+                        IsTriggerElement = true
+                    }
+                ]
+            };
+        }
+
+        private sealed class FakeUiaRecorderRepository : IUiaRecorderRepository
+        {
+            private readonly Queue<UiaChainModel> _pointChains;
+
+            internal FakeUiaRecorderRepository(params UiaChainModel[] pointChains)
+            {
+                _pointChains = new Queue<UiaChainModel>(pointChains);
+            }
+
+            internal int PointPeekCount { get; private set; }
+
+            public UiaChainModel Peek()
+            {
+                throw new InvalidOperationException("Focused-element lookup is not part of these tests.");
+            }
+
+            public UiaChainModel Peek(int x, int y)
+            {
+                PointPeekCount++;
+
+                if (_pointChains.Count == 0)
+                {
+                    throw new InvalidOperationException("No coordinate-based chain remains for this test.");
+                }
+
+                return _pointChains.Dequeue();
+            }
+        }
+    }
+}

@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/.docs/">
+    <File Path="../README.md" />
+  </Folder>
+  <Folder Name="/.git/">
+    <File Path="../.gitignore" />
+    <File Path="../LICENSE" />
+  </Folder>
+  <Folder Name="/.github/">
+    <File Path="../.github/workflows/release-pipline.yml" />
+  </Folder>
+  <Project Path="G4.Recorders.Chromium.Domain/G4.Recorders.Chromium.Domain.csproj" />
+  <Project Path="G4.Recorders.Chromium.Settings/G4.Recorders.Chromium.Settings.csproj" Id="a65c8c6b-759a-436c-b9b3-1f2c0c20dc56" />
+  <Project Path="G4.Recorders.Chromium/G4.Recorders.Chromium.csproj" Id="9bde48f0-16b1-4107-be5f-b300a39b7489" />
+  <Project Path="G4.Recorders.ClientApp/G4.Recorders.ClientApp.csproj" Id="0620fccb-78e9-4248-90e5-3d3e68077e31" />
+  <Project Path="G4.Recorders.Common.Domain/G4.Recorders.Common.Domain.csproj" Id="52378ca2-c3fb-4edb-a722-774337627aaf" />
+  <Project Path="G4.Recorders.Uia.Domain.UnitTests/G4.Recorders.Uia.Domain.UnitTests.csproj" Id="a6b0cf95-66b8-4de8-b833-3148a6c0f5cf" />
+  <Project Path="G4.Recorders.Uia.Domain/G4.Recorders.Uia.Domain.csproj" Id="e985ad15-8ed6-4d27-b2c0-defda9f65e8e" />
+  <Project Path="G4.Recorders.Uia.PathFinder/G4.Recorders.Uia.PathFinder.csproj" Id="6a3d6982-6ab8-4490-96aa-b47ca3f7fdfd" />
+  <Project Path="G4.Recorders.Uia/G4.Recorders.Uia.csproj" Id="fa7e3d26-98b4-4580-bd23-a2fa1265c2aa" />
+</Solution>

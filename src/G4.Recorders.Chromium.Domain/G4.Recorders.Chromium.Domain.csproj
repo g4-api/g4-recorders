@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<!-- Assembly -->
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyVersion>10.0.0.0</AssemblyVersion>
+		<FileVersion>10.0.0.0</FileVersion>
+		<IsPackable>false</IsPackable>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<SatelliteResourceLanguages>en-US</SatelliteResourceLanguages>
+		<LangVersion>latest</LangVersion>
+		<ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+		<!-- https://learn.microsoft.com/en-us/dotnet/fundamentals/syslib-diagnostics/syslib1040-1049 -->
+		<NoWarn>$(NoWarn);SYSLIB1045;IDE0130;SYSLIB1054;CA2101;S4200;MSB3305</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\G4.Recorders.Common.Domain\G4.Recorders.Common.Domain.csproj" />
+	</ItemGroup>
+
+	<!--
+		The Chromium recorder extension is now owned by the ChromiumPeek host project
+		(src\ChromiumPeek\ChromiumExtension), which copies it to its own output. The old
+		copy rule that pulled src\ChromiumPeek.Extension into the output was removed so
+		there is a single source of truth and stale files cannot overwrite the new ones.
+	-->
+
+</Project>
