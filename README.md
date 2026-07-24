@@ -42,12 +42,12 @@
 
 ## What is this?
 
-This repository provides **two recording tools that share one event contract**:
+G4 Recorders is a **growing suite of recording tools that share one event contract**. It currently ships two recorders, with **Android and iOS recorders planned** to extend the same contract to mobile platforms:
 
 * **UIA Recorder** (`G4.Recorders.Uia`) — a Windows **UI Automation** inspection and recording tool. It peeks at desktop UI elements (returning their **ancestor chain**, like an XPath for Windows UI) and records global keyboard and mouse events enriched with UI context.
 * **Chromium Recorder** (`G4.Recorders.Chromium`) — a **browser** recording tool. A bundled Chromium **recorder extension** captures in-page interactions (with a DOM locator chain) and streams them to a hub, which relays them to consumers.
 
-Both tools **broadcast the same `ReceiveRecordingEvent` message over SignalR**, so a consumer can watch desktop and browser interactions through a single, uniform contract.
+Every recorder in the suite **broadcasts the same `ReceiveRecordingEvent` message over SignalR**, so a consumer can watch interactions across desktop, browser, and (in the future) mobile platforms through a single, uniform contract.
 
 Use cases:
 
