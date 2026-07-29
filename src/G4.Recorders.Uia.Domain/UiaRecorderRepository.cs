@@ -25,14 +25,10 @@ namespace G4.Recorders.Uia.Domain
             // Set the point information in the chain model if it exists.
             chain.Point = new RecorderPointModel { XPos = x, YPos = y };
 
-            // Build the absolute XPath locator for the ancestor chain.
+            // Keep the canonical absolute path as the executable locator because removing ancestors can
+            // reintroduce ambiguity when identical branches exist elsewhere below the same window.
             chain.FallbackLocator = chain.ResolveLocator();
-            chain.Locator = chain.FormatXpath();
-
-            // If the formatted XPath locator is empty, fall back to the absolute locator.
-            chain.Locator = string.IsNullOrEmpty(chain.Locator)
-                ? chain.FallbackLocator
-                : chain.Locator;
+            chain.Locator = chain.FallbackLocator;
 
             // Indicate that this chain was triggered by a hover action.
             chain.Trigger = "Hover";
@@ -54,17 +50,13 @@ namespace G4.Recorders.Uia.Domain
             // or return a new empty model if no element was found.
             var chain = automation.NewAncestorChain(element) ?? new UiaChainModel();
 
-            // Generate the absolute XPath locator for the ancestor chain.
+            // Keep the canonical absolute path as the executable locator because removing ancestors can
+            // reintroduce ambiguity when identical branches exist elsewhere below the same window.
             chain.FallbackLocator = chain.ResolveLocator();
-            chain.Locator = chain.FormatXpath();
+            chain.Locator = chain.FallbackLocator;
 
             // Indicate that this chain was triggered by a focus action.
             chain.Trigger = "Focus";
-
-            // If the formatted XPath locator is empty, fall back to the absolute locator.
-            chain.Locator = string.IsNullOrEmpty(chain.Locator)
-                ? chain.FallbackLocator
-                : chain.Locator;
 
             // Return the ancestor chain model.
             return chain;

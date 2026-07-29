@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.RegularExpressions;
 
 using G4.Recorders.Uia.Domain.Models;
 
@@ -18,6 +17,8 @@ namespace G4.Recorders.Uia.Domain.Extensions
     /// </summary>
     internal static class LocalExtensions
     {
+        #region *** Methods     ***
+
         /// <summary>
         /// Converts an <see cref="IUIAutomationElement"/> into a <see cref="UiaNodeModel"/> representation.
         /// </summary>
@@ -83,10 +84,29 @@ namespace G4.Recorders.Uia.Domain.Extensions
                     break;
                 }
 
-                // Calculate sibling indexes while both current element and parent are available.
-                var (siblingIdx, sameTypeIdx) = GetSiblingIndexes(walker, automation, parent, current, node.ControlTypeId);
-                node.SiblingIndex = siblingIdx;
-                node.SiblingIndexOfSameControlType = sameTypeIdx;
+                // Capture every selector-relative sibling rank while the live parent and target are available so
+                // later locator formatting can add a position that matches the driver's exact predicate scope.
+                var siblingDetails = GetSiblingDetails(
+                    context: new SiblingContext
+                    {
+                        Automation = automation,
+                        Node = node,
+                        Parent = parent,
+                        Target = current,
+                        Walker = walker
+                    }
+                );
+
+                // Persist the 1-based ranks so locator generation remains deterministic after the COM traversal
+                // advances to the next ancestor.
+                node.AutomationIdMatchCount = siblingDetails.AutomationIdMatchCount;
+                node.AutomationIdMatchIndex = siblingDetails.AutomationIdMatchIndex;
+                node.IdentityMatchCount = siblingDetails.IdentityMatchCount;
+                node.IdentityMatchIndex = siblingDetails.IdentityMatchIndex;
+                node.NameMatchCount = siblingDetails.NameMatchCount;
+                node.NameMatchIndex = siblingDetails.NameMatchIndex;
+                node.SiblingIndex = siblingDetails.AllIndex;
+                node.SiblingIndexOfSameControlType = siblingDetails.SameControlTypeIndex;
 
                 // Stop climbing further if the parent is the root desktop element.
                 try
@@ -126,157 +146,118 @@ namespace G4.Recorders.Uia.Domain.Extensions
         }
 
         /// <summary>
-        /// Builds a deterministic UIA XPath-like locator string from a <see cref="UiaChainModel"/>.
-        /// Every ancestor node is included in the path using a single <c>/</c> separator.
-        /// Nodes are identified by <c>Name</c> when safe, falling back to <c>AutomationId</c>,
-        /// otherwise by a 1-based sibling index among nodes of the same <c>ControlType</c>.
-        /// UWP <c>Windows.UI.Core.CoreWindow</c> nodes are omitted because UIA cannot resolve them.
+        /// Builds the canonical UIA XPath-like locator for a <see cref="UiaChainModel"/>.
         /// </summary>
         /// <param name="chain">The chain containing the ordered UIA ancestor nodes.</param>
-        /// <returns>A deterministic locator string beginning with <c>/Desktop</c>.</returns>
+        /// <returns>A canonical locator string beginning with <c>/Desktop</c>.</returns>
         public static string ResolveLocator(this UiaChainModel chain)
         {
-            // Extract the ancestor nodes from the chain, defaulting to an empty list if the chain is null.
+            return GetCanonicalLocator(chain);
+        }
+
+        /// <summary>
+        /// Builds the canonical locator for a UIA element by preserving every resolvable ancestor and
+        /// positioning any repeated selector relative to the siblings that match that exact selector.
+        /// </summary>
+        /// <param name="chain">The UIA chain model to format.</param>
+        /// <returns>A canonical locator beginning at the desktop element.</returns>
+        private static string GetCanonicalLocator(UiaChainModel chain)
+        {
             var nodes = chain?.Path ?? [];
             var builder = new StringBuilder("/Desktop");
-
-            // Set to true when a UWP CoreWindow node is skipped; causes the next node to use '//'
-            // because UIA cannot step through the UWP layer with a single '/'.
             var isGap = false;
 
             foreach (var node in nodes)
             {
-                // Control type label, falling back to '*' when the type is unknown.
-                var control = node.ControlType ?? "*";
+                var isUwp = node.ClassName?.Equals(
+                    value: "Windows.UI.Core.CoreWindow",
+                    comparisonType: StringComparison.OrdinalIgnoreCase
+                ) == true;
 
-                // UWP CoreWindow elements are invisible to UIA — omit from the path but mark a gap
-                // so the following node uses '//' to bridge the unreachable UWP layer.
-                var isUwp = node.ClassName?.Equals("Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase) == true;
                 if (isUwp)
                 {
                     isGap = true;
                     continue;
                 }
 
-                // '//' when bridging a UWP gap, '/' for every other step.
                 var separator = isGap ? "//" : "/";
+                var segment = GetCanonicalSegment(node);
+
+                builder.Append(separator).Append(segment);
                 isGap = false;
-
-                // Attempt to use Name as the strongest available identifier, falling back to AutomationId when safe,
-                // otherwise using a positional index among siblings of the same ControlType.
-                var automationId = node.AutomationId;
-                var name = node.Name;
-
-                // Identifiers that contain quotes cannot be used in XPath predicates and are considered broken.
-                var hasAutomationId = !string.IsNullOrEmpty(automationId) && !IsBroken(automationId);
-                var hasName = !string.IsNullOrEmpty(name) && !IsBroken(name);
-
-                if (hasName)
-                {
-                    // Strong identifier — use Name predicate.
-                    builder.Append(separator).Append(control).Append($"[@Name='{name}']");
-                }
-                else if (hasAutomationId)
-                {
-                    // Secondary identifier — use AutomationId predicate.
-                    builder.Append(separator).Append(control).Append($"[@AutomationId='{automationId}']");
-                }
-                else
-                {
-                    // No usable identifier — disambiguate with 1-based index among same-ControlType siblings.
-                    builder.Append(separator).Append(control).Append($"[{node.SiblingIndexOfSameControlType}]");
-                }
             }
 
-            // Return the constructed locator string.
             return builder.ToString();
-
-            // Identifiers containing quotes cannot be safely embedded in XPath attribute predicates.
-            static bool IsBroken(string input) => input.Contains('\'') || input.Contains('"');
         }
 
-        // TODO: Add support for other stable attributes such as ClassName when they can be safely used in XPath predicates.
-        /// <summary>
-        /// Builds a compact semantic XPath from the fallback UIA XPath.
-        /// </summary>
-        /// <param name="chain">The UIA chain model that contains the fallback locator.</param>
-        /// <returns>
-        /// A normalized XPath that starts from <c>/Desktop</c> and targets the final
-        /// element by a stable identity, or <c>null</c> when a safe normalized locator
-        /// cannot be generated.
-        /// </returns>
-        public static string FormatXpath(this UiaChainModel chain)
+        // Gets a selector that is unique under the already-resolved parent, adding a 1-based position
+        // when multiple siblings match the exact control type and property predicate.
+        internal static string GetCanonicalSegment(UiaNodeModel node)
         {
-            // Get the original full fallback XPath from the UIA chain.
-            var xpath = chain?.FallbackLocator;
+            var controlType = node.ControlType ?? "*";
+            var automationId = node.AutomationId;
+            var name = node.Name;
+            var hasAutomationId = !string.IsNullOrEmpty(automationId) && !TestBrokenIdentifier(automationId);
+            var hasName = !string.IsNullOrEmpty(name) && !TestBrokenIdentifier(name);
 
-            // A valid fallback XPath must be present and must start from the root.
-            if (string.IsNullOrWhiteSpace(xpath) || !xpath.StartsWith('/'))
+            if (hasAutomationId && node.AutomationIdMatchCount == 1)
             {
-                return null;
+                return $"{controlType}[@AutomationId='{automationId}']";
             }
 
-            // Split the XPath into segments.
-            // The regex captures each XPath separator and the segment that follows it.
-            var matches = Regex.Matches(xpath, @"(/+)([^/]+)");
-
-            // A normalized locator needs at least a root segment and a target segment.
-            if (matches.Count < 2)
+            if (hasAutomationId && hasName && node.IdentityMatchCount > 0)
             {
-                return null;
+                var selector = $"{controlType}[@AutomationId='{automationId}' and @Name='{name}']";
+
+                return AppendPosition(
+                    selector: selector,
+                    matchCount: node.IdentityMatchCount,
+                    matchIndex: node.IdentityMatchIndex
+                );
             }
 
-            // Keep only the segment text.
-            // Example: "/Desktop/Window[1]/Button[@Name='OK']"
-            // becomes: "Desktop", "Window[1]", "Button[@Name='OK']".
-            var segments = matches
-                .Select(m => m.Groups[2].Value)
-                .ToArray();
-
-            // The final segment is the selected UIA element.
-            var finalSegment = segments[^1];
-
-            // The final element must have a stable identity.
-            // Index-only locators are intentionally rejected for normalized output.
-            if (!finalSegment.Contains("[@AutomationId=") && !finalSegment.Contains("[@Name="))
+            if (hasName && node.NameMatchCount == 1)
             {
-                return null;
+                return $"{controlType}[@Name='{name}']";
             }
 
-            // Do not generate a normalized element locator when the selected target
-            // is itself a Window.
-            if (ControlType(finalSegment).Equals("Window", StringComparison.OrdinalIgnoreCase))
+            if (hasAutomationId && node.AutomationIdMatchCount > 0)
             {
-                return null;
+                var selector = $"{controlType}[@AutomationId='{automationId}']";
+
+                return AppendPosition(
+                    selector: selector,
+                    matchCount: node.AutomationIdMatchCount,
+                    matchIndex: node.AutomationIdMatchIndex
+                );
             }
 
-            // Find the first Window ancestor before the final target segment.
-            // The target itself is excluded from this search.
-            var windowSegment = segments[..^1]
-                .FirstOrDefault(s => ControlType(s).Equals("Window", StringComparison.OrdinalIgnoreCase));
-
-            // If no Window ancestor exists, search from Desktop directly to the target.
-            if (windowSegment == null)
+            if (hasName && node.NameMatchCount > 0)
             {
-                return $"/Desktop//{finalSegment}";
+                var selector = $"{controlType}[@Name='{name}']";
+
+                return AppendPosition(
+                    selector: selector,
+                    matchCount: node.NameMatchCount,
+                    matchIndex: node.NameMatchIndex
+                );
             }
 
-            // Anchor the locator through the Window ancestor and then search below it
-            // for the final target element.
-            var result = $"/Desktop//{windowSegment}//{finalSegment}";
+            return $"{controlType}[{Math.Max(1, node.SiblingIndexOfSameControlType)}]";
+        }
 
-            // Return null when normalization produced the same value as the fallback.
-            return result == xpath ? null : result;
+        // Adds an XPath position only when more than one sibling matches the exact selector.
+        private static string AppendPosition(string selector, int matchCount, int matchIndex)
+        {
+            return matchCount > 1
+                ? $"{selector}[{Math.Max(1, matchIndex)}]"
+                : selector;
+        }
 
-            // Gets the control type name from an XPath segment.
-            static string ControlType(string segment)
-            {
-                // The control type is stored before the first '[' character.
-                var idx = segment.IndexOf('[');
-
-                // If the segment has no predicate, the whole segment is the control type.
-                return idx < 0 ? segment : segment[..idx];
-            }
+        // Tests whether an identifier contains a quote that cannot be embedded in the supported syntax.
+        private static bool TestBrokenIdentifier(string input)
+        {
+            return input.Contains('\'') || input.Contains('"');
         }
 
         // TODO: Export all properties that can be safely retrieved from the element, such as IsContentElement, IsControlElement, IsEnabled, etc.
@@ -415,70 +396,94 @@ namespace G4.Recorders.Uia.Domain.Extensions
             return list;
         }
 
-        // Calculates 1-based sibling indexes for a UIA element among its parent's children.
-        // Walks siblings via RawViewWalker from the first child until the target is found.
-        // Returns (index among all siblings, index among siblings with the same ControlTypeId).
-        // Falls back to (1, 1) if enumeration fails or the target is not found.
-        private static (int All, int SameControlType) GetSiblingIndexes(
-            IUIAutomationTreeWalker walker,
-            CUIAutomation8 automation,
-            IUIAutomationElement parent,
-            IUIAutomationElement target,
-            int targetControlTypeId)
+        // Captures selector-relative match counts and positions for the target under its direct parent.
+        private static SiblingDetails GetSiblingDetails(SiblingContext context)
         {
-            // Count predecessors (0-based); add 1 at the return point to produce 1-based XPath positions.
-            var allCount = 0;
-            var sameTypeCount = 0;
+            var details = new SiblingDetails();
 
             try
             {
-                // Start with the first child of the parent element.
-                // If the parent has no children or retrieval fails, this will be null and the loop will be skipped.
-                var child = Safe(() => walker.GetFirstChildElement(parent), fallback: null);
+                var child = Safe(
+                    getter: () => context.Walker.GetFirstChildElement(context.Parent),
+                    fallback: null
+                );
 
-                // Walk through siblings until the target element is found, counting positions.
                 while (child != null)
                 {
-                    // Check whether this sibling is the target element.
-                    var isTarget = false;
+                    var controlTypeId = Safe(() => child.CurrentControlType);
+                    var automationId = Safe(() => child.CurrentAutomationId);
+                    var name = Safe(() => child.CurrentName);
+                    var hasSameControlType = controlTypeId == context.Node.ControlTypeId;
+                    var hasSameAutomationId = hasSameControlType
+                        && !string.IsNullOrEmpty(context.Node.AutomationId)
+                        && string.Equals(
+                            a: automationId,
+                            b: context.Node.AutomationId,
+                            comparisonType: StringComparison.Ordinal
+                        );
+                    var hasSameName = hasSameControlType
+                        && !string.IsNullOrEmpty(context.Node.Name)
+                        && string.Equals(
+                            a: name,
+                            b: context.Node.Name,
+                            comparisonType: StringComparison.Ordinal
+                        );
+                    var hasSameIdentity = hasSameAutomationId && hasSameName;
 
-                    // CompareElements can throw if either element is stale or the provider
-                    // is buggy, so we catch exceptions and treat them as non-matches.
-                    try
+                    details.AllCount++;
+                    details.AutomationIdMatchCount += hasSameAutomationId ? 1 : 0;
+                    details.IdentityMatchCount += hasSameIdentity ? 1 : 0;
+                    details.NameMatchCount += hasSameName ? 1 : 0;
+                    details.SameControlTypeCount += hasSameControlType ? 1 : 0;
+
+                    if (TestSameElement(context.Automation, child, context.Target))
                     {
-                        isTarget = automation.CompareElements(child, target) == 1;
-                    }
-                    catch (COMException) { }
-                    catch (InvalidComObjectException) { }
-
-                    // If this sibling is the target, stop counting; otherwise,
-                    // increment counts and move to the next sibling.
-                    if (isTarget)
-                    {
-                        break;
+                        details.AllIndex = details.AllCount;
+                        details.AutomationIdMatchIndex = Math.Max(1, details.AutomationIdMatchCount);
+                        details.IdentityMatchIndex = Math.Max(1, details.IdentityMatchCount);
+                        details.NameMatchIndex = Math.Max(1, details.NameMatchCount);
+                        details.SameControlTypeIndex = Math.Max(1, details.SameControlTypeCount);
+                        details.TargetFound = true;
                     }
 
-                    // Increment the count of all siblings encountered so far.
-                    // This count is used to determine the target's position among all siblings.
-                    allCount++;
-
-                    // If this sibling shares the same ControlTypeId as the target, increment the same-type count.
-                    if (Safe(() => child.CurrentControlType) == targetControlTypeId)
-                    {
-                        sameTypeCount++;
-                    }
-
-                    // Move to the next sibling element, handling potential COM exceptions safely.
-                    // If retrieval fails, child will be set to null and the loop will exit.
-                    child = Safe(() => walker.GetNextSiblingElement(child), fallback: null);
+                    child = Safe(
+                        getter: () => context.Walker.GetNextSiblingElement(child),
+                        fallback: null
+                    );
                 }
             }
-            catch (COMException) { }
-            catch (InvalidComObjectException) { }
-            catch (Exception) { }
+            catch (COMException)
+            {
+                // A stale UIA provider cannot contribute reliable sibling metadata.
+            }
+            catch (InvalidComObjectException)
+            {
+                // A released UIA element cannot contribute reliable sibling metadata.
+            }
 
-            // +1 converts predecessor count (0-based) to 1-based XPath sibling position.
-            return (allCount + 1, sameTypeCount + 1);
+            return details.TargetFound
+                ? details
+                : new SiblingDetails();
+        }
+
+        // Tests element identity while isolating failures from stale or faulty UIA providers.
+        private static bool TestSameElement(
+            CUIAutomation8 automation,
+            IUIAutomationElement candidate,
+            IUIAutomationElement target)
+        {
+            try
+            {
+                return automation.CompareElements(candidate, target) == 1;
+            }
+            catch (COMException)
+            {
+                return false;
+            }
+            catch (InvalidComObjectException)
+            {
+                return false;
+            }
         }
 
         // Safely executes a function that retrieves a COM-related value,
@@ -506,5 +511,51 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 return fallback;
             }
         }
+
+        #endregion
+
+        #region *** Nested Types ***
+
+        // Carries the live UIA objects needed to enumerate the selected element's siblings.
+        private sealed class SiblingContext
+        {
+            public CUIAutomation8 Automation { get; init; }
+
+            public UiaNodeModel Node { get; init; }
+
+            public IUIAutomationElement Parent { get; init; }
+
+            public IUIAutomationElement Target { get; init; }
+
+            public IUIAutomationTreeWalker Walker { get; init; }
+        }
+
+        // Stores 1-based ranks and total match counts for every selector the recorder can emit.
+        private sealed class SiblingDetails
+        {
+            public int AllCount { get; set; }
+
+            public int AllIndex { get; set; } = 1;
+
+            public int AutomationIdMatchCount { get; set; }
+
+            public int AutomationIdMatchIndex { get; set; } = 1;
+
+            public int IdentityMatchCount { get; set; }
+
+            public int IdentityMatchIndex { get; set; } = 1;
+
+            public int NameMatchCount { get; set; }
+
+            public int NameMatchIndex { get; set; } = 1;
+
+            public int SameControlTypeCount { get; set; }
+
+            public int SameControlTypeIndex { get; set; } = 1;
+
+            public bool TargetFound { get; set; }
+        }
+
+        #endregion
     }
 }
