@@ -9,7 +9,7 @@ namespace G4.Recorders.Uia.Domain
     /// </summary>
     internal static class UiaXpath
     {
-        #region *** Fields        ***
+        #region *** Fields       ***
 
         private static readonly Regex s_desktopPrefix = new(
             pattern: @"^(?:\(+)?/(?:root|desktop)(?=/|$)",
