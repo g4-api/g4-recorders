@@ -36,6 +36,7 @@
 
 	<ItemGroup>
 		<InternalsVisibleTo Include="G4.Recorders.Uia.Domain.UnitTests" />
+		<InternalsVisibleTo Include="G4.Recorders.Uia.PathFinder" />
 	</ItemGroup>
 
 	<ItemGroup>

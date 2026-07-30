@@ -26,6 +26,7 @@ env:
   buildPlatform: 'any cpu'
   chromiumProjectName: G4.Recorders.Chromium
   uiaProjectName: G4.Recorders.Uia
+  uiaPathFinderProjectName: G4.Recorders.Uia.PathFinder
 
 # Default settings for all run steps
 defaults:
@@ -136,6 +137,62 @@ jobs:
         name: uia-recorder-drop
         path: ${{ env.artifactStagingDirectory }}/*.zip
 
+  # Job to build and publish the G4 Recorders UIA PathFinder (XPath resolver)
+  build-uia-path-finder:
+    name: Build & Publish G4 Recorders - UIA PathFinder Version ${{ needs.new-version.outputs.buildVersion }}
+    runs-on: windows-latest
+    needs: new-version
+    if: ${{ needs.new-version.result == 'success' && needs.new-version.outputs.validVersion == 'True' }}
+
+    # Outputs of the job
+    outputs:
+      buildVersion: ${{ needs.new-version.outputs.buildVersion }}
+
+    # Set environment variables specific to the build job
+    env:
+      buildVersion: ${{ needs.new-version.outputs.buildVersion }}
+
+    steps:
+    # Step to checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Step to setup .NET Core SDK
+    - name: Setup .NET Core SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    # Step to restore packages
+    - name: Restore Packages
+      shell: pwsh
+      run: dotnet restore ${{ env.uiaPathFinderProjectName }}/${{ env.uiaPathFinderProjectName }}.csproj
+
+    # Add msbuild to PATH (required for the WPF + COMReference PathFinder project)
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v2
+
+    # Step to publish the project
+    - name: Publish
+      shell: pwsh
+      run: msbuild ${{ env.uiaPathFinderProjectName }}/${{ env.uiaPathFinderProjectName }}.csproj /t:Publish /p:Configuration=Release /p:PublishDir=${{ env.binariesDirectory }}/${{ env.uiaPathFinderProjectName }}/publish/
+
+    # Step to create a build artifact
+    - name: Create Build Artifact
+      shell: pwsh
+      run: |
+        New-Item -Path "${{ env.artifactStagingDirectory }}" -ItemType Directory
+        Compress-Archive `
+            -Path ${{ env.binariesDirectory }}/${{ env.uiaPathFinderProjectName }}/publish/* `
+            -DestinationPath ${{ env.artifactStagingDirectory }}/uia-path-finder.${{ env.buildVersion }}-win-x64.zip
+
+    # Step to upload the build artifact
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: uia-path-finder-drop
+        path: ${{ env.artifactStagingDirectory }}/*.zip
+
   # Job to build and publish the G4 Recorders Chromium host
   build-chromium-recorder:
     name: Build & Publish G4 Recorders - Chromium Version ${{ needs.new-version.outputs.buildVersion }}
@@ -212,6 +269,7 @@ jobs:
     needs:
       - new-version
       - build-uia-recorder
+      - build-uia-path-finder
       - build-chromium-recorder
     if: success()
 
@@ -229,6 +287,12 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: uia-recorder-drop
+
+    # Step to download G4 Recorders - UIA PathFinder build artifacts
+    - name: Download G4 Recorders - UIA PathFinder Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: uia-path-finder-drop
 
     # Step to download G4 Recorders - Chromium build artifacts
     - name: Download G4 Recorders - Chromium Build Artifacts

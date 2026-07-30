@@ -424,15 +424,10 @@ namespace G4.Recorders.Uia.PathFinder
         /// </returns>
         public static IUIAutomationElement GetElement(this CUIAutomation8 automation, string xpath)
         {
-            // Normalize the xpath by removing any leading "/Desktop" segment.
-            xpath = xpath.Replace("/Desktop", "/");
-            xpath = xpath.StartsWith("///") ? xpath.Replace("///", "//") : xpath;
-
-            // Get the root UI Automation element.
-            var automationElement = automation.GetRootElement();
-
-            // Use the FindElement method for finding an element based on the specified xpath.
-            return FindElement(automationElement, xpath).Element?.UIAutomationElement;
+            return XpathResolver.Resolve(
+                rootElement: automation.GetRootElement(),
+                xpath: xpath
+            );
         }
 
         /// <summary>
@@ -446,8 +441,10 @@ namespace G4.Recorders.Uia.PathFinder
         /// </returns>
         public static IUIAutomationElement GetElement(this IUIAutomationElement automationElement, string xpath)
         {
-            // Use the FindElement method for finding an element based on the specified xpath.
-            return FindElement(automationElement, xpath).Element.UIAutomationElement;
+            return XpathResolver.Resolve(
+                rootElement: automationElement,
+                xpath: xpath
+            );
         }
 
         /// <summary>
@@ -512,61 +509,6 @@ namespace G4.Recorders.Uia.PathFinder
             return new ObservableCollection<ElementDataModel>(collection);
         }
 
-        // Finds a UI automation element based on the given XPath expression.
-        private static (int Status, ElementModel Element) FindElement(IUIAutomationElement applicationRoot, string xpath)
-        {
-            // Converts an IUIAutomationElement to an Element.
-            static ElementModel ConvertToElement(IUIAutomationElement automationElement)
-            {
-                // Generate a unique ID for the element based on the AutomationId, or use a new GUID if AutomationId is empty.
-                var automationId = automationElement.CurrentAutomationId;
-                var id = string.IsNullOrEmpty(automationId)
-                    ? $"{Guid.NewGuid()}"
-                    : automationElement.CurrentAutomationId;
-
-                // Create a Location object based on the current bounding rectangle of the UI Automation element.
-                var location = new LocationModel
-                {
-                    Bottom = automationElement.CurrentBoundingRectangle.bottom,
-                    Left = automationElement.CurrentBoundingRectangle.left,
-                    Right = automationElement.CurrentBoundingRectangle.right,
-                    Top = automationElement.CurrentBoundingRectangle.top
-                };
-
-                // Create a new Element object and populate its properties.
-                var element = new ElementModel
-                {
-                    Id = id,
-                    UIAutomationElement = automationElement,
-                    Location = location
-                };
-
-                // Return the created Element.
-                return element;
-            }
-
-            // Convert the XPath expression to a UI Automation condition
-            var condition = XpathParser.ConvertToCondition(xpath);
-
-            // Return 400 status code if the XPath expression is invalid
-            if (condition == null)
-            {
-                return (400, default);
-            }
-
-            // Determine the search scope based on the XPath expression
-            var scope = xpath.StartsWith("//")
-                ? TreeScope.TreeScope_Descendants
-                : TreeScope.TreeScope_Children;
-
-            // Find the first element that matches the condition within the specified scope
-            var element = applicationRoot.FindFirst(scope, condition);
-
-            // Return the status and element: 404 if not found, 200 if found
-            return element == null
-                ? (404, default)
-                : (200, ConvertToElement(element));
-        }
     }
 
     /// <summary>
