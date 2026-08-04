@@ -23,7 +23,11 @@
 
     // Pull the hub method names and server-to-client message names so invocations and inbound
     // handlers stay in sync with the server contract.
-    const { HUB_METHOD_NAMES, SERVER_CLOSE_BROWSER_NAME } = namespace.constants;
+    const {
+        HUB_METHOD_NAMES,
+        SERVER_CLOSE_BROWSER_NAME,
+        SERVER_PEEK_REQUEST_NAME
+    } = namespace.constants;
 
     // Human-readable connection states surfaced to the rest of the extension. These are
     // independent of the SignalR client's internal enum so the UI has stable labels.
@@ -50,6 +54,7 @@
      * @param {() => void} options.onReconnecting Called when the client starts reconnecting.
      * @param {() => void} options.onDisconnected Called when the socket closes for good.
      * @param {() => void} [options.onCloseBrowser] Called when the hub asks the extension to close the browser.
+     * @param {(request: object) => Promise<void>} options.onPeekRequested Called for a correlated DOM peek request.
      * @returns {object} The connection handle.
      */
     function newRecorderConnection(options) {
@@ -59,7 +64,8 @@
             onConnected,
             onReconnecting,
             onDisconnected,
-            onCloseBrowser
+            onCloseBrowser,
+            onPeekRequested
         } = options;
 
         // The official client is exposed as a global by the vendored UMD build. Fail
@@ -94,10 +100,23 @@
 
         // A successful reconnect is treated like a fresh connect: the worker starts a
         // new session so the captured-event stack resets per the agreed behaviour.
-        hubConnection.onreconnected(() => {
+        hubConnection.onreconnected(async () => {
             connectionState = CONNECTION_STATES.connected;
 
-            onConnected();
+            // Re-register this transport because SignalR assigned a new connection identifier before
+            // allowing the worker to publish a fresh session.
+            try {
+                await registerRecorder();
+
+                onConnected();
+            } catch (error) {
+                // Keep UI state honest after a registration failure; the worker's next demand will rebuild
+                // the connection instead of treating an unregistered socket as a valid peek producer.
+                connectionState = CONNECTION_STATES.disconnected;
+                console.error("[g4-recorder] recorder registration failed after reconnect:", error);
+
+                onDisconnected();
+            }
         });
 
         // A permanent close (reconnect exhausted or explicit stop) returns the handle
@@ -115,6 +134,11 @@
             hubConnection.on(SERVER_CLOSE_BROWSER_NAME, onCloseBrowser);
         }
 
+        // Route server peek requests into the background worker, which owns tab and frame selection.
+        if (onPeekRequested) {
+            hubConnection.on(SERVER_PEEK_REQUEST_NAME, onPeekRequested);
+        }
+
         /**
          * Returns the current human-readable connection state.
          *
@@ -122,6 +146,38 @@
          */
         function getState() {
             return connectionState;
+        }
+
+        /**
+         * Registers the current SignalR connection as a recorder extension.
+         *
+         * @remarks
+         * Owns a hub invocation required after every initial connect and reconnect because the
+         * server targets peek requests by the transport-assigned connection identifier.
+         *
+         * @returns {Promise<void>} Resolves after the server records the extension connection.
+         */
+        function registerRecorder() {
+            return hubConnection.invoke(HUB_METHOD_NAMES.registerRecorder);
+        }
+
+        /**
+         * Returns a correlated DOM peek result to the server.
+         *
+         * @remarks
+         * Owns the response invocation while connected. A response produced during transport teardown is
+         * discarded because the server independently fails correlations owned by the disconnected identifier.
+         *
+         * @param {object} response The response carrying requestId, chain, and optional error.
+         * @returns {Promise<void>} Resolves once the server accepts or ignores the correlation.
+         */
+        function sendPeekResponse(response) {
+            // Preserve request completion even when no recording event is active in the current session.
+            if (connectionState !== CONNECTION_STATES.connected) {
+                return Promise.resolve();
+            }
+
+            return hubConnection.invoke(HUB_METHOD_NAMES.sendPeekResponse, response);
         }
 
         /**
@@ -169,6 +225,9 @@
 
                 connectionState = CONNECTION_STATES.connected;
 
+                // Register before publishing connected state so server-side peek requests have a valid target.
+                await registerRecorder();
+
                 onConnected();
             } catch (error) {
                 connectionState = CONNECTION_STATES.disconnected;
@@ -192,6 +251,7 @@
 
         return {
             getState,
+            sendPeekResponse,
             sendRecordingEvent,
             start,
             stop

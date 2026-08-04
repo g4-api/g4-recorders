@@ -1,25 +1,43 @@
+using G4.Recorders.Common.Domain.Models;
+
 using G4.Recorders.Chromium.Domain.Models;
+
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace G4.Recorders.Chromium.Domain
 {
     /// <summary>
-    /// Represents a repository for accessing UI Automation elements and their ancestor chains.
+    /// Coordinates correlated Chromium element queries between server callers and connected recorder extensions.
     /// </summary>
     public interface IChromiumRecorderRepository
     {
         /// <summary>
-        /// Retrieves the ancestor chain of the UI Automation element located at the given screen coordinates.
+        /// Completes a pending peek request from a response returned by the recorder extension.
         /// </summary>
-        /// <param name="x">The X-coordinate on the screen.</param>
-        /// <param name="y">The Y-coordinate on the screen.</param>
-        /// <returns>A <see cref="ChromiumChainModel"/> representing the ancestor chain of the element at the specified point, or <c>null</c> if no element is found.</returns>
-        ChromiumChainModel Peek();
+        /// <param name="response">The correlated response received by the SignalR hub.</param>
+        /// <param name="connectionId">The transport connection that submitted the response.</param>
+        /// <returns><c>true</c> when a pending request accepted the response; otherwise, <c>false</c>.</returns>
+        bool Complete(ChromiumPeekResponseModel response, string connectionId);
 
         /// <summary>
-        /// Retrieves the currently focused UI Automation element and constructs
-        /// its ancestor chain representation, including an absolute XPath locator.
+        /// Gets a Chromium element chain by sending one normalized request to the connected recorder extension.
         /// </summary>
-        /// <returns>A <see cref="ChromiumChainModel"/> representing the focused element and its ancestors,or an empty model if no element is currently focused.</returns>
-        ChromiumChainModel Peek(int x, int y);
+        /// <param name="request">The normalized coordinate, focus, or current-pointer request.</param>
+        /// <param name="cancellationToken">Stops waiting when the caller disconnects or abandons the request.</param>
+        /// <returns>The resolved chain, or an empty chain when no accessible element matched.</returns>
+        Task<ChromiumChainModel> GetAsync(RecorderPeekRequestModel request, CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Registers a SignalR connection as a recorder extension eligible to receive element queries.
+        /// </summary>
+        /// <param name="connectionId">The SignalR connection identifier owned by the extension.</param>
+        void Register(string connectionId);
+
+        /// <summary>
+        /// Removes a disconnected recorder extension and fails requests that were waiting on that connection.
+        /// </summary>
+        /// <param name="connectionId">The disconnected SignalR connection identifier.</param>
+        void Remove(string connectionId);
     }
 }

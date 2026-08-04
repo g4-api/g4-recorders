@@ -47,6 +47,13 @@
     let hoverClientY = 0;
     let hoverDwellTimerId = null;
 
+    // Latest trusted pointer snapshot used by on-demand current-position peek requests even
+    // when hover recording is disabled. The state is invalidated when the frame loses pointer ownership.
+    let isPointerInsideDocument = false;
+    let pointerClientX = 0;
+    let pointerClientY = 0;
+    let pointerObservedAtMilliseconds = 0;
+
     /**
      * Resolves the deepest real target of a DOM event.
      *
@@ -565,13 +572,19 @@
      * @returns {void}
      */
     function onHoverMove(domEvent) {
-        // Do nothing until settings have loaded, so toggles are always respected.
-        if (!activeSettings) {
+        // Ignore programmatic/synthetic movement: only a real pointer resting should record.
+        if (!domEvent.isTrusted) {
             return;
         }
 
-        // Ignore programmatic/synthetic movement: only a real pointer resting should record.
-        if (!domEvent.isTrusted) {
+        // Retain current-position state independently from hover recording so API peek remains available.
+        isPointerInsideDocument = true;
+        pointerClientX = domEvent.clientX;
+        pointerClientY = domEvent.clientY;
+        pointerObservedAtMilliseconds = Date.now();
+
+        // Do nothing until settings have loaded, so recording toggles are always respected.
+        if (!activeSettings) {
             return;
         }
 
@@ -603,12 +616,173 @@
      * @returns {void}
      */
     function onHoverLeave() {
+        // Invalidate current-position ownership before clearing optional hover-dwell state.
+        isPointerInsideDocument = false;
+
         if (hoverDwellTimerId !== null) {
             clearTimeout(hoverDwellTimerId);
             hoverDwellTimerId = null;
         }
 
         hoverElement = null;
+    }
+
+    /**
+     * Creates a content-frame response for one normalized server peek request.
+     *
+     * @remarks
+     * Compute-only over the current document plus the frame-owned pointer snapshot. Coordinate
+     * and current modes resolve at viewport-relative coordinates, while focused mode walks the
+     * active-element chain. The returned chain reuses the recorder contract without producing an event.
+     *
+     * @param {object} request The normalized request carrying mode and resolved coordinates.
+     * @returns {object} The frame result consumed by the background worker's selection stage.
+     */
+    function newPeekResponse(request) {
+        const documentFocused = document.hasFocus();
+        const response = {
+            chain: null,
+            documentFocused,
+            found: false,
+            frameContext: getFrameContext(),
+            pointerObservedAtMilliseconds
+        };
+
+        // Reject malformed runtime messages without reading properties through implicit coercion.
+        const isRequestObject = request !== null && typeof request === "object";
+        const hasRequestMode = isRequestObject && typeof request.mode === "string";
+
+        if (!hasRequestMode) {
+            return response;
+        }
+
+        let element = null;
+        let point = null;
+        let trigger = "";
+
+        if (request.mode === "Coordinates") {
+            const isXValid = typeof request.x === "number" && Number.isFinite(request.x);
+            const isYValid = typeof request.y === "number" && Number.isFinite(request.y);
+
+            if (!isXValid || !isYValid) {
+                return response;
+            }
+
+            element = resolveElementFromPoint(request.x, request.y);
+            point = contract.newPoint({ xPosition: request.x, yPosition: request.y });
+            trigger = "Hover";
+        }
+
+        if (request.mode === "Focused") {
+            element = resolveFocusedElement();
+            trigger = "Focus";
+        }
+
+        if (request.mode === "Current") {
+            if (!isPointerInsideDocument) {
+                return response;
+            }
+
+            element = resolveElementFromPoint(pointerClientX, pointerClientY);
+            point = contract.newPoint({ xPosition: pointerClientX, yPosition: pointerClientY });
+            trigger = "Hover";
+        }
+
+        // Return an empty frame result when the selected mode has no accessible DOM element.
+        if (!element) {
+            return response;
+        }
+
+        // Map the resolved element through the established recorder contract so REST and events share one shape.
+        response.chain = mapper.newChainFromElement({ element, point, trigger });
+        response.found = true;
+
+        return response;
+    }
+
+    /**
+     * Receives background-worker requests addressed to this content frame.
+     *
+     * @param {object} message The runtime message carrying a channel and normalized request.
+     * @param {object} sender Browser-owned sender metadata retained for the listener signature.
+     * @param {(response: object) => void} sendResponse Callback used to return the synchronous frame result.
+     * @returns {boolean} False because the response is completed synchronously.
+     */
+    function onRuntimeMessage(message, sender, sendResponse) {
+        // Ignore unrelated extension messages so existing popup and settings traffic remains isolated.
+        const isPeekMessage = message !== null &&
+            typeof message === "object" &&
+            message.channel === MESSAGE_CHANNELS.peekRequest;
+
+        if (!isPeekMessage) {
+            return false;
+        }
+
+        // Resolve against this frame immediately before returning so DOM mutations are reflected in the result.
+        sendResponse(newPeekResponse(message.request));
+
+        return false;
+    }
+
+    /**
+     * Invalidates pointer and hover state when the frame loses browser focus.
+     *
+     * @returns {void}
+     */
+    function onWindowBlur() {
+        // Reuse the pointer-leave cleanup so a cursor moved outside Chromium cannot leave a stale current target.
+        onHoverLeave();
+    }
+
+    /**
+     * Resolves the deepest active element visible through open shadow roots.
+     *
+     * @remarks
+     * Compute-only. Closed shadow roots remain intentionally opaque because the page does not expose them.
+     *
+     * @returns {Element|null} The focused element owned by this document, or null when the document lacks focus.
+     */
+    function resolveFocusedElement() {
+        if (!document.hasFocus()) {
+            return null;
+        }
+
+        let element = document.activeElement;
+
+        // Descend through every exposed shadow-root focus boundary to recover the actual interactive control.
+        while (element && element.shadowRoot && element.shadowRoot.activeElement) {
+            element = element.shadowRoot.activeElement;
+        }
+
+        return element && element.nodeType === Node.ELEMENT_NODE
+            ? element
+            : null;
+    }
+
+    /**
+     * Resolves the deepest element at viewport-relative coordinates, including open shadow roots.
+     *
+     * @param {number} clientX The horizontal coordinate in this frame's viewport.
+     * @param {number} clientY The vertical coordinate in this frame's viewport.
+     * @returns {Element|null} The deepest accessible element at the point.
+     */
+    function resolveElementFromPoint(clientX, clientY) {
+        let element = document.elementFromPoint(clientX, clientY);
+
+        // Reapply the same viewport point inside open shadow roots until no deeper element is exposed.
+        while (element && element.shadowRoot && typeof element.shadowRoot.elementFromPoint === "function") {
+            const shadowElement = element.shadowRoot.elementFromPoint(clientX, clientY);
+
+            if (!shadowElement || shadowElement === element) {
+                break;
+            }
+
+            element = shadowElement;
+        }
+
+        return element && element.nodeType === Node.ELEMENT_NODE
+            ? element
+            : null;
     }
 
     /**
@@ -656,6 +830,15 @@
         });
 
         document.addEventListener("mouseleave", onHoverLeave, {
+            capture: true,
+            passive: true
+        });
+
+        // Receive on-demand DOM queries separately from page events so peeking never records an interaction.
+        chrome.runtime.onMessage.addListener(onRuntimeMessage);
+
+        // Invalidate pointer ownership when the browser frame loses focus so current lookup cannot return stale state.
+        globalScope.addEventListener("blur", onWindowBlur, {
             capture: true,
             passive: true
         });

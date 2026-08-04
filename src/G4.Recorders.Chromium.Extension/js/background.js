@@ -198,7 +198,8 @@ async function connectWithSettings() {
         onConnected: onConnected,
         onReconnecting: onReconnecting,
         onDisconnected: onDisconnected,
-        onCloseBrowser: onCloseBrowserRequested
+        onCloseBrowser: onCloseBrowserRequested,
+        onPeekRequested: onPeekRequested
     });
 
     // Attempt the connection; report status first so the UI shows "connecting", and let
@@ -522,6 +523,76 @@ async function getActiveFrameId(tabId) {
     return typeof storedFrameId === "number"
         ? storedFrameId
         : 0;
+}
+
+/**
+ * Gets the content-script frame identifiers currently available in a tab.
+ *
+ * @remarks
+ * Reads the browser-owned frame tree for focused and current-pointer queries. A top-frame
+ * fallback keeps ordinary pages serviceable when frame enumeration is temporarily unavailable.
+ *
+ * @param {number} tabId The tab whose frame tree is required.
+ * @returns {Promise<number[]>} The distinct frame identifiers, always including frame zero.
+ */
+async function getFrameIds(tabId) {
+    // Query the current frame tree because navigation can replace frame identifiers between requests.
+    try {
+        const browserFrames = await chrome.webNavigation.getAllFrames({ tabId });
+        const frames = Array.isArray(browserFrames) ? browserFrames : [];
+        const frameIds = frames
+            .map((frame) => frame.frameId)
+            .filter((frameId) => typeof frameId === "number");
+
+        if (!frameIds.includes(0)) {
+            frameIds.unshift(0);
+        }
+
+        return [...new Set(frameIds)];
+    } catch {
+        // Preserve top-frame availability when browser frame enumeration races with navigation.
+        return [0];
+    }
+}
+
+/**
+ * Gets one frame's answer to a normalized peek request.
+ *
+ * @remarks
+ * Owns the extension runtime-message boundary. Missing receivers are represented as null so
+ * browser-internal or newly navigating frames do not fail the complete tab lookup.
+ *
+ * @param {object} options Frame query inputs.
+ * @param {number} options.frameId The content-script frame to query.
+ * @param {object} options.request The correlated normalized request from the server.
+ * @param {number} options.tabId The active tab containing the frame.
+ * @returns {Promise<object|null>} The frame response with frameId attached, or null when unavailable.
+ */
+async function getPeekResponseFromFrame(options) {
+    const { frameId, request, tabId } = options;
+
+    // Ask exactly one frame so competing content scripts cannot race one callback response.
+    try {
+        const response = await chrome.tabs.sendMessage(
+            tabId,
+            {
+                channel: MESSAGE_CHANNELS.peekRequest,
+                request
+            },
+            { frameId }
+        );
+
+        const isResponseAvailable = response !== null && typeof response === "object";
+
+        if (!isResponseAvailable) {
+            return null;
+        }
+
+        return { ...response, frameId };
+    } catch {
+        // Treat an unavailable or navigating frame as absent so remaining frames can still answer.
+        return null;
+    }
 }
 
 /**
@@ -960,6 +1031,102 @@ async function onNavigationCommitted(navigationDetails) {
 }
 
 /**
+ * Resolves a server-initiated DOM peek through the active tab's content scripts.
+ *
+ * @remarks
+ * Owns tab and frame selection plus the correlated response invocation. Coordinate requests
+ * target the recorder's active frame, focused requests inspect all frames for document focus,
+ * and current requests select the newest valid pointer observation. Lookup never mutates the
+ * recording stack or emits a recording event.
+ *
+ * @param {object} request The normalized request received through SignalR.
+ * @returns {Promise<void>} Resolves after a response has been returned to the server.
+ */
+async function onPeekRequested(request) {
+    // Preserve only a string correlation identifier so malformed server input cannot be coerced silently.
+    const hasRequestObject = request !== null && typeof request === "object";
+    const requestId = hasRequestObject && typeof request.requestId === "string"
+        ? request.requestId
+        : "";
+    const response = {
+        chain: null,
+        error: null,
+        requestId
+    };
+
+    try {
+        // Select the active tab from the browser window that most recently owned focus.
+        const queriedTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        const activeTabs = Array.isArray(queriedTabs) ? queriedTabs : [];
+        const activeTab = activeTabs.find((tab) => typeof tab.id === "number");
+
+        if (!activeTab) {
+            throw new Error("No active Chromium tab is available for the peek request.");
+        }
+
+        // Read active-frame state once so coordinate targeting and focused-response preference agree.
+        const activeFrameId = await getActiveFrameId(activeTab.id);
+        let frameResponses = [];
+
+        if (request.mode === "Coordinates") {
+            const activeFrameResponse = await getPeekResponseFromFrame({
+                frameId: activeFrameId,
+                request,
+                tabId: activeTab.id
+            });
+
+            if (activeFrameResponse) {
+                frameResponses = [activeFrameResponse];
+            }
+
+            // Fall back to the top viewport after navigation invalidates a previously active child frame.
+            if (frameResponses.length === 0 && activeFrameId !== 0) {
+                const topFrameResponse = await getPeekResponseFromFrame({
+                    frameId: 0,
+                    request,
+                    tabId: activeTab.id
+                });
+
+                if (topFrameResponse) {
+                    frameResponses = [topFrameResponse];
+                }
+            }
+        } else {
+            // Query every live frame because focus and current-pointer ownership can reside in a child frame.
+            const frameIds = await getFrameIds(activeTab.id);
+            const responsePromises = frameIds.map((frameId) => getPeekResponseFromFrame({
+                frameId,
+                request,
+                tabId: activeTab.id
+            }));
+            const candidateResponses = await Promise.all(responsePromises);
+            frameResponses = candidateResponses.filter((candidateResponse) => candidateResponse !== null);
+        }
+
+        // Select the response according to the normalized mode and expose only its chain to the server contract.
+        const selectedResponse = selectPeekResponse({
+            activeFrameId,
+            mode: request.mode,
+            responses: frameResponses
+        });
+
+        const isElementFound = selectedResponse !== null && selectedResponse.found === true;
+
+        if (isElementFound) {
+            response.chain = selectedResponse.chain;
+        }
+    } catch (error) {
+        // Convert any browser API or content failure into a stable diagnostic for the waiting HTTP or hub caller.
+        response.error = resolveErrorMessage(error);
+    }
+
+    // Complete the correlation only while the originating SignalR connection remains available.
+    if (recorderConnection) {
+        await recorderConnection.sendPeekResponse(response);
+    }
+}
+
+/**
  * Handles a transient reconnect by republishing status.
  *
  * @remarks
@@ -1379,6 +1546,92 @@ async function sendRecordingEventToHub(recordingEvent) {
     } catch (error) {
         console.error("[g4-recorder] hub rejected recording event:", error);
     }
+}
+
+/**
+ * Resolves a readable message from an unknown browser or transport failure value.
+ *
+ * @param {*} error The caught value to normalize.
+ * @returns {string} A stable diagnostic that avoids default object stringification.
+ */
+function resolveErrorMessage(error) {
+    if (error instanceof Error) {
+        return error.message;
+    }
+
+    if (typeof error === "string") {
+        return error;
+    }
+
+    // Preserve structured failure detail when possible without risking another exception.
+    try {
+        const serializedError = JSON.stringify(error);
+
+        return typeof serializedError === "string" && serializedError.length > 0
+            ? serializedError
+            : "Unknown Chromium peek failure.";
+    } catch {
+        // Fall back to a fixed primitive when the caught value cannot be serialized safely.
+        return "Unknown Chromium peek failure.";
+    }
+}
+
+/**
+ * Selects the one frame response that owns the requested coordinate, focus, or pointer target.
+ *
+ * @remarks
+ * Compute-only over collected frame responses. Coordinate mode accepts its targeted frame,
+ * focus mode prefers the recorder's active frame, and current mode selects the newest trusted
+ * pointer observation so frame-query completion order cannot change the result.
+ *
+ * @param {object} options Selection inputs.
+ * @param {number} options.activeFrameId The recorder frame most recently activated by interaction.
+ * @param {string} options.mode The normalized server request mode.
+ * @param {object[]} options.responses The available content-script responses.
+ * @returns {object|null} The selected response, or null when no frame resolved an element.
+ */
+function selectPeekResponse(options) {
+    const { activeFrameId, mode, responses } = options;
+    const foundResponses = responses.filter((response) => response.found === true);
+
+    if (mode === "Coordinates") {
+        return foundResponses.length > 0 ? foundResponses[0] : null;
+    }
+
+    if (mode === "Focused") {
+        const focusedResponses = foundResponses.filter(
+            (response) => response.documentFocused === true
+        );
+        const activeFocusedResponse = focusedResponses.find(
+            (response) => response.frameId === activeFrameId
+        );
+
+        if (activeFocusedResponse) {
+            return activeFocusedResponse;
+        }
+
+        return focusedResponses.length > 0 ? focusedResponses[0] : null;
+    }
+
+    if (mode === "Current") {
+        let selectedResponse = null;
+        let selectedTimestampMilliseconds = -1;
+
+        for (const response of foundResponses) {
+            const timestampMilliseconds = typeof response.pointerObservedAtMilliseconds === "number"
+                ? response.pointerObservedAtMilliseconds
+                : -1;
+
+            if (timestampMilliseconds > selectedTimestampMilliseconds) {
+                selectedResponse = response;
+                selectedTimestampMilliseconds = timestampMilliseconds;
+            }
+        }
+
+        return selectedResponse;
+    }
+
+    throw new Error("The Chromium peek request mode is unsupported.");
 }
 
 /**

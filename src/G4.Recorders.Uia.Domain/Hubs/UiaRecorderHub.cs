@@ -12,13 +12,18 @@ namespace G4.Recorders.Uia.Domain.Hubs
     /// Provides real-time communication for heartbeat checks and
     /// ancestor chain inspection at specific screen coordinates.
     /// </summary>
-    public class UiaRecorderHub(IUiaRecorderRepository repository) : Hub
+    public class UiaRecorderHub(
+        IUiaRecorderRepository repository,
+        IUiaCursorPositionProvider cursorPositionProvider) : Hub
     {
         // Shared process state gates hover sampling and separates consecutive recording sessions.
         private readonly RecorderConnectionState _connectionState = RecorderConnectionState.Instance;
 
         // Repository used for querying UIA elements at coordinates.
         private readonly IUiaRecorderRepository _repository = repository;
+
+        // Provider used to sample the physical cursor for current-position hub requests.
+        private readonly IUiaCursorPositionProvider _cursorPositionProvider = cursorPositionProvider;
 
         /// <inheritdoc />
         public override async Task OnConnectedAsync()
@@ -73,6 +78,24 @@ namespace G4.Recorders.Uia.Domain.Hubs
             var peekResponse = _repository.Peek();
 
             // Send the result back to the calling client.
+            return Clients.Caller.SendAsync(
+                method: "ReceivePeek",
+                arg1: new HubResponseModel(peekResponse));
+        }
+
+        // Resolves the UIA element at the current physical cursor position and returns its ancestor chain.
+        [HubMethodName(name: $"{nameof(SendPeek)}Current")]
+        public Task SendPeekCurrent()
+        {
+            // Require a current physical point so failure cannot silently resolve the desktop origin.
+            if (!_cursorPositionProvider.GetCurrent(out var point))
+            {
+                throw new HubException("The current physical cursor position is unavailable.");
+            }
+
+            // Reuse coordinate resolution so current-position and explicit-point chains remain identical.
+            var peekResponse = _repository.Peek(x: point.XPos, y: point.YPos);
+
             return Clients.Caller.SendAsync(
                 method: "ReceivePeek",
                 arg1: new HubResponseModel(peekResponse));

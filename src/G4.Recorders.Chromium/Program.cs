@@ -206,7 +206,8 @@ builder.Services.AddHttpClient();
 #endregion
 
 #region *** Dependencies  ***
-builder.Services.AddTransient<IChromiumRecorderRepository, ChromiumRecorderRepository>();
+// Register the repository as a singleton because it owns extension registrations and pending peek correlations.
+builder.Services.AddSingleton<IChromiumRecorderRepository, ChromiumRecorderRepository>();
 
 // Register the peek launcher as a singleton so its tracked-instance registry (used to stop
 // only browsers this service started) persists across requests.

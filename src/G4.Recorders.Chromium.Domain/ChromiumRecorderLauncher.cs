@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.SignalR;
 
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -32,7 +33,7 @@ namespace G4.Recorders.Chromium.Domain
     {
         #region *** Constants ***
         // Folder name (under the app base directory) that holds the recorder extension.
-        private const string ExtensionFolderName = "ChromiumPeek.Extension";
+        private const string ExtensionFolderName = "G4.Recorders.Chromium.Extension";
 
         // Prefix for the per-launch Chromium user-data directory created under the temp folder.
         private const string UserDataDirectoryPrefix = "chromium-peek-";
@@ -42,6 +43,9 @@ namespace G4.Recorders.Chromium.Domain
         #endregion
 
         #region *** Fields    ***
+        // Caches characters that require Windows command-line quoting across every browser launch.
+        private static readonly SearchValues<char> ArgumentQuotingCharacters = SearchValues.Create([' ', '\t', '\n', '\v', '"']);
+
         // Registry of processes started by this launcher, keyed by process id. Only ids in
         // this map may be stopped, so an arbitrary/unknown process id can never be killed.
         private readonly ConcurrentDictionary<int, Process> _startedProcesses = new();
@@ -358,7 +362,7 @@ namespace G4.Recorders.Chromium.Domain
         private static void AppendArgument(StringBuilder builder, string argument)
         {
             // Arguments without whitespace or quotes need no quoting.
-            if (argument.Length > 0 && argument.IndexOfAny(new char[] { ' ', '\t', '\n', '\v', '"' }) < 0)
+            if (argument.Length > 0 && argument.AsSpan().IndexOfAny(ArgumentQuotingCharacters) < 0)
             {
                 builder.Append(argument);
                 return;

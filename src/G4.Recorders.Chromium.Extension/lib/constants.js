@@ -27,6 +27,8 @@
     // Names of the hub methods the extension invokes on the server. These must match
     // the C# ChromiumPeekHub method names exactly (case-insensitive on the wire).
     const HUB_METHOD_NAMES = {
+        registerRecorder: "RegisterRecorder",
+        sendPeekResponse: "SendPeekResponse",
         sendRecordingEvent: "SendRecordingEvent"
     };
 
@@ -37,6 +39,9 @@
     // Name of the server-to-client message the hub sends to ask this extension to close its
     // browser windows for a graceful stop. Must match ChromiumPeekHub.CloseBrowserClientMethod.
     const SERVER_CLOSE_BROWSER_NAME = "CloseBrowser";
+
+    // Name of the server-to-extension request that asks the active browser context to resolve a DOM element.
+    const SERVER_PEEK_REQUEST_NAME = "ReceivePeekRequest";
 
     // The hub path appended to a server origin to form a full hub URL. Used when the launcher's
     // bootstrap page reports which server this freshly launched browser must connect to.
@@ -52,6 +57,7 @@
     // uses one of these stable identifiers as its `channel` field.
     const MESSAGE_CHANNELS = {
         recordingEvent: "g4-recorder/recording-event",
+        peekRequest: "g4-recorder/peek-request",
         requestStatus: "g4-recorder/request-status",
         statusChanged: "g4-recorder/status-changed",
         clearStack: "g4-recorder/clear-stack",
@@ -124,6 +130,7 @@
         SERVER_BROADCAST_NAME,
         SERVER_CLOSE_BROWSER_NAME,
         SERVER_HUB_PATH,
+        SERVER_PEEK_REQUEST_NAME,
         SETTINGS_STORAGE_KEY
     });
 })(globalThis);
