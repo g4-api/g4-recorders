@@ -75,9 +75,7 @@ namespace G4.Recorders.Chromium.Domain.Hubs
         public async Task SendPeek(RecorderPointModel point)
         {
             // Require the coordinate envelope before creating the normalized extension request.
-            ArgumentNullException.ThrowIfNull(
-                argument: point,
-                paramName: nameof(point));
+            ArgumentNullException.ThrowIfNull(argument: point);
 
             // Normalize explicit coordinates through the same precedence contract used by REST callers.
             var request = RecorderPeekRequestResolver.Resolve(point.XPos, point.YPos, focused: false);
