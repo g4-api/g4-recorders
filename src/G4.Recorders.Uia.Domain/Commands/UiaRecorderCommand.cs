@@ -81,11 +81,15 @@ namespace G4.Recorders.Uia.Domain.Commands
                 ? yValue
                 : 0;
 
+            // Construct the repository directly (this command runs outside the ASP.NET host's DI container) with
+            // the same cursor-position provider the host itself registers.
+            var repository = new UiaRecorderRepository(cursorPositionProvider: new UiaCursorPositionProvider());
+
             // Retrieve the ancestor chain based on the provided coordinates
             // or focused element if no coordinates.
             var chain = (!isX || !isY) && isFocused
-                ? new UiaRecorderRepository().Peek()
-                : new UiaRecorderRepository().Peek(x, y);
+                ? repository.Peek()
+                : repository.Peek(x, y);
 
             // Serialize the result to JSON and write to console.
             var json = JsonSerializer.Serialize(chain, s_jsonOptions);

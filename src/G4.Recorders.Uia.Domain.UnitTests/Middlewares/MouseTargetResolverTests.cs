@@ -3,6 +3,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
 
+using G4.Recorders.Common.Domain.Models;
+
 using G4.Recorders.Uia.Domain.Middlewares;
 using G4.Recorders.Uia.Domain.Models;
 
@@ -245,6 +247,16 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
 
             internal int PointPeekCount { get; private set; }
 
+            public RecorderScreenshotModel GetScreenshot(bool metricsOnly)
+            {
+                throw new InvalidOperationException("Screen capture is not part of these tests.");
+            }
+
+            public RecorderPointModel MovePointer(int x, int y)
+            {
+                throw new InvalidOperationException("Pointer movement is not part of these tests.");
+            }
+
             public UiaChainModel Peek()
             {
                 throw new InvalidOperationException("Focused-element lookup is not part of these tests.");
@@ -260,6 +272,16 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
                 }
 
                 return _pointChains.Dequeue();
+            }
+
+            public UiaChainModel ResolveGroundedElement(int x, int y, bool skipOffset)
+            {
+                throw new InvalidOperationException("Grounding is not part of these tests.");
+            }
+
+            public RecorderWindowFocusModel SetWindowFocus(string windowTitle, string processName)
+            {
+                throw new InvalidOperationException("Window focus is not part of these tests.");
             }
         }
     }

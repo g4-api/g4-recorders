@@ -26,7 +26,7 @@ namespace G4.Recorders.Uia.PathFinder
     /// </summary>
     public partial class MainWindow : Window
     {
-        private readonly UiaRecorderRepository _domain = new();
+        private readonly UiaRecorderRepository _domain = new(cursorPositionProvider: new UiaCursorPositionProvider());
 
         // Indicates whether the tracking is currently running.
         private bool _isRunning;

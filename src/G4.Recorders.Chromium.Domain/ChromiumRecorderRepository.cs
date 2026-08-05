@@ -145,6 +145,22 @@ namespace G4.Recorders.Chromium.Domain
         }
 
         /// <inheritdoc />
+        public RecorderScreenshotModel GetScreenshot(bool metricsOnly)
+        {
+            // Report unimplemented rather than capturing a screen this host is not guaranteed to have; this
+            // project targets plain net10.0 (not net10.0-windows), so it is not guaranteed to run on Windows.
+            throw new NotImplementedException("GetScreenshot is not implemented for the Chromium recorder surface yet.");
+        }
+
+        /// <inheritdoc />
+        public RecorderPointModel MovePointer(int x, int y)
+        {
+            // Report unimplemented rather than guessing at a physical-cursor mapping for a browser viewport
+            // coordinate; the Chromium surface may not even run on a machine with a real desktop cursor.
+            throw new NotImplementedException("MovePointer is not implemented for the Chromium recorder surface yet.");
+        }
+
+        /// <inheritdoc />
         public void Register(string connectionId)
         {
             // Require a transport-owned identifier before exposing the connection as an extension target.
@@ -176,6 +192,22 @@ namespace G4.Recorders.Chromium.Domain
                 disconnectedPeek.Value.Completion.TrySetException(
                     new InvalidOperationException("The Chromium recorder extension disconnected during the peek request."));
             }
+        }
+
+        /// <inheritdoc />
+        public Task<ChromiumChainModel> ResolveGroundedElementAsync(int x, int y, bool skipOffset, CancellationToken cancellationToken)
+        {
+            // Report unimplemented rather than approximating pointer-move-and-offset behavior against a DOM
+            // element without the physical screen mapping the UIA surface already has.
+            throw new NotImplementedException("ResolveGroundedElementAsync is not implemented for the Chromium recorder surface yet.");
+        }
+
+        /// <inheritdoc />
+        public RecorderWindowFocusModel SetWindowFocus(string windowTitle, string processName)
+        {
+            // Report unimplemented rather than guessing at browser-side window focus behavior; the Chromium
+            // extension surface has no equivalent of the UIA host's own OS-level window handle to focus.
+            throw new NotImplementedException("SetWindowFocus is not implemented for the Chromium recorder surface yet.");
         }
         #endregion
 

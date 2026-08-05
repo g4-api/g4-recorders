@@ -8,6 +8,7 @@ namespace G4.Recorders.Common.Domain.Models
     /// </summary>
     public class ChainModel<T>
     {
+        #region *** Properties   ***
         /// <summary>
         /// Gets or sets a locator string for the trigger element.
         /// </summary>
@@ -25,6 +26,15 @@ namespace G4.Recorders.Common.Domain.Models
         public RecorderPointModel Point { get; set; } = null;
 
         /// <summary>
+        /// The pointer's pixel offset from the trigger element's top-left corner.
+        /// </summary>
+        /// <remarks>
+        /// Null on a plain peek. Populated only when a grounding operation computes it, so existing callers that
+        /// only ever called peek keep observing an unchanged response shape.
+        /// </remarks>
+        public RecorderOffsetModel Offset { get; set; } = null;
+
+        /// <summary>
         /// The top-level window node in the chain,
         /// representing the ancestor closest to the desktop root.
         /// </summary>
@@ -34,5 +44,6 @@ namespace G4.Recorders.Common.Domain.Models
         /// The action or event that caused this chain to be recorded, if applicable.
         /// </summary>
         public string Trigger { get; set; } = string.Empty;
+        #endregion
     }
 }

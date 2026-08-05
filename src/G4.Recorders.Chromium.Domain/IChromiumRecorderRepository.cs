@@ -1,3 +1,4 @@
+using G4.Recorders.Common.Domain;
 using G4.Recorders.Common.Domain.Models;
 
 using G4.Recorders.Chromium.Domain.Models;
@@ -10,8 +11,9 @@ namespace G4.Recorders.Chromium.Domain
     /// <summary>
     /// Coordinates correlated Chromium element queries between server callers and connected recorder extensions.
     /// </summary>
-    public interface IChromiumRecorderRepository
+    public interface IChromiumRecorderRepository : IRecorderPrimitivesRepository
     {
+        #region *** Methods      ***
         /// <summary>
         /// Completes a pending peek request from a response returned by the recorder extension.
         /// </summary>
@@ -39,5 +41,23 @@ namespace G4.Recorders.Chromium.Domain
         /// </summary>
         /// <param name="connectionId">The disconnected SignalR connection identifier.</param>
         void Remove(string connectionId);
+
+        /// <summary>
+        /// Physically moves the pointer to the given coordinates, peeks the DOM element found there, and - unless
+        /// suppressed - resolves the pointer's pixel offset from that element's top-left corner.
+        /// </summary>
+        /// <param name="x">The horizontal viewport coordinate to ground against.</param>
+        /// <param name="y">The vertical viewport coordinate to ground against.</param>
+        /// <param name="skipOffset">
+        /// When <c>true</c>, skips the offset computation and leaves the returned chain's offset null.
+        /// </param>
+        /// <param name="cancellationToken">Stops waiting when the caller disconnects or abandons the request.</param>
+        /// <returns>The resolved ancestor chain, with its offset populated unless <paramref name="skipOffset"/> is set.</returns>
+        /// <remarks>
+        /// Not implemented on the Chromium surface yet - always throws <see cref="System.NotImplementedException"/>
+        /// until this surface ships pointer and offset support alongside its UIA counterpart.
+        /// </remarks>
+        Task<ChromiumChainModel> ResolveGroundedElementAsync(int x, int y, bool skipOffset, CancellationToken cancellationToken);
+        #endregion
     }
 }
