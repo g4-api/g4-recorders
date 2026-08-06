@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
 
 using System;
+using System.IO;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,8 +19,64 @@ namespace G4.Recorders.Chromium.Controllers
     [ApiController]
     [Route("/api/v4/g4/[controller]")]
     [SwaggerTag(description: "Utilities for resolving Chromium DOM elements through the connected recorder extension.")]
-    public class RecorderController(IChromiumRecorderRepository repository) : ControllerBase
+    public class RecorderController(
+        IChromiumRecorderRepository repository,
+        IChromiumRecorderLauncher launcher) : ControllerBase
     {
+        [HttpPost("browser")]
+        #region *** OpenApi Documentation ***
+        [SwaggerOperation(
+            Summary = "Start a Chromium recorder browser",
+            Description = "Starts Chromium on the recorder host with the bundled recorder extension. When the " +
+                "request omits the binary path, the recorder resolves Chrome from its own G4 sandbox layout."
+        )]
+        [SwaggerResponse(StatusCodes.Status200OK,
+            description: "Browser process started on the recorder host.",
+            type: typeof(int),
+            contentTypes: MediaTypeNames.Application.Json)]
+        [SwaggerResponse(StatusCodes.Status400BadRequest,
+            description: "The browser binary or recorder extension is unavailable on the recorder host.",
+            type: typeof(ProblemDetails),
+            contentTypes: MediaTypeNames.Application.Json)]
+        #endregion
+        public IActionResult StartBrowser([FromBody] DriverParametersModel driverParameters)
+        {
+            try
+            {
+                // Delegate the operating-system interaction to the recorder-owned launcher so HTTP clients stay remote-safe.
+                var processId = launcher.Start(driverParameters);
+
+                return Ok(processId);
+            }
+            catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException or InvalidOperationException)
+            {
+                // Report recorder-host readiness failures as caller-visible input/environment problems.
+                return Problem(
+                    detail: exception.Message,
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+        }
+
+        [HttpDelete("browser/{processId:int}")]
+        #region *** OpenApi Documentation ***
+        [SwaggerOperation(
+            Summary = "Stop a Chromium recorder browser",
+            Description = "Stops a browser previously started by this recorder host, using the recorder extension " +
+                "for graceful close before the recorder-owned process fallback."
+        )]
+        [SwaggerResponse(StatusCodes.Status200OK,
+            description: "The recorder accepted the browser stop request.",
+            type: typeof(bool),
+            contentTypes: MediaTypeNames.Application.Json)]
+        #endregion
+        public async Task<IActionResult> StopBrowserAsync(int processId)
+        {
+            // Keep browser shutdown on the recorder machine so remote clients never manipulate an operating-system process.
+            var isStopped = await launcher.StopAsync(processId).ConfigureAwait(false);
+
+            return Ok(isStopped);
+        }
+
         [HttpGet("observe")]
         #region *** OpenApi Documentation ***
         [SwaggerOperation(

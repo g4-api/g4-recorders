@@ -1,0 +1,22 @@
+{
+	"name": "g4.Peek",
+	"title": "Peek UIA Tree At Coordinates",
+	"description": "Resolves the UI Automation element from supplied coordinates, focus, or the current cursor position, and returns its ancestor chain.",
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"x": {
+				"type": "integer",
+				"description": "The X screen coordinate in pixels. Any supplied coordinate takes precedence over focused."
+			},
+			"y": {
+				"type": "integer",
+				"description": "The Y screen coordinate in pixels."
+			},
+			"focused": {
+				"type": "boolean",
+				"description": "If true and both coordinates are missing, peek the currently focused UI element."
+			}
+		}
+	}
+}

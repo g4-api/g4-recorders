@@ -3,7 +3,7 @@ namespace G4.Recorders.Chromium.Domain.Models
     /// <summary>
     /// Represents the driver parameters supplied by the client. Additional fields such as
     /// driver, driverBinaries, and firstMatch are accepted but ignored for now; only the
-    /// capabilities (browser binary and args) are consumed by the peek launcher.
+    /// capabilities (optional recorder-host browser binary and args) are consumed by the peek launcher.
     /// </summary>
     public class DriverParametersModel
     {

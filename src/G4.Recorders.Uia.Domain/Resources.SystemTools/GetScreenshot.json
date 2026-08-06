@@ -1,0 +1,14 @@
+{
+	"name": "g4.GetScreenshot",
+	"title": "Capture The Virtual Desktop",
+	"description": "Captures the full virtual desktop as a base64 PNG, along with its coordinate-space metrics.",
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"metricsOnly": {
+				"type": "boolean",
+				"description": "When true, skips the pixel capture and returns only virtual-desktop bounds."
+			}
+		}
+	}
+}

@@ -204,6 +204,7 @@ builder.Services.AddHttpClient();
 
 #region *** Dependencies  ***
 builder.Services.AddTransient<IUiaRecorderRepository, UiaRecorderRepository>();
+builder.Services.AddTransient<IRecorderMcpRepository, RecorderMcpRepository>();
 builder.Services.AddSingleton<IUiaCursorPositionProvider, UiaCursorPositionProvider>();
 #endregion
 

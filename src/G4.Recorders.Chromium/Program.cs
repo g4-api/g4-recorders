@@ -260,9 +260,8 @@ app.MapControllers();
 app.MapHub<ChromiumRecorderHub>($"/hub/v4/g4/peek").RequireCors("CorsPolicy");
 #endregion
 
-// The browser is launched and stopped on demand by the client over SignalR, by invoking
-// the ChromiumRecorderHub StartRecorder/StopRecorder methods on the /hub/v4/g4/peek hub, so
-// there is no automatic startup launch and no REST control endpoint here.
+// Browser lifecycle is exposed through both the SignalR hub and RecorderController REST actions. In either case,
+// the recorder host owns the operating-system process so remote clients never manipulate the browser directly.
 
 // Start the application and wait for it to finish.
 await app.RunAsync();

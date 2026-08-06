@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 // G4.Recorders.ClientApp is a manual test harness: it connects to both the Uia and Chromium
 // recorder SignalR hubs and prints every recorder event they broadcast. UIA events stream
-// automatically once the Uia recorder host is running (it captures global desktop input);
+// automatically once the Uia recorder host is running (it captures global desktop input)
 // Chromium events require a browser with the recorder extension, which this client can launch
 // via the 's' key (StartRecorder).
 
@@ -220,7 +220,7 @@ async Task RunKeyLoopAsync(CancellationTokenSource cancellationSource)
         switch (key)
         {
             case ConsoleKey.Q:
-                cancellationSource.Cancel();
+                await cancellationSource.CancelAsync();
                 break;
 
             case ConsoleKey.V:
@@ -273,7 +273,7 @@ async Task StartChromiumAsync()
     {
         capabilities = new
         {
-            alwaysMatch = new Dictionary<string, object?>
+            alwaysMatch = new Dictionary<string, object>
             {
                 ["goog:chromeOptions"] = new { binary = chromiumBinary, args = chromiumArguments }
             }

@@ -38,6 +38,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- Embeds the fixed 5-tool MCP catalog so RecorderMcpRepository can load it without touching disk at
+		     runtime, matching G4.Services.Domain.V4's own Resources.SystemTools convention. -->
+		<EmbeddedResource Include="Resources.SystemTools\**\*.*" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<InternalsVisibleTo Include="G4.Recorders.Uia.Domain.UnitTests" />
 		<InternalsVisibleTo Include="G4.Recorders.Uia.PathFinder" />
 	</ItemGroup>
