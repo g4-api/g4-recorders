@@ -80,7 +80,7 @@ namespace G4.Recorders.Chromium.Domain.Hubs
             // Normalize explicit coordinates through the same precedence contract used by REST callers.
             var request = RecorderPeekRequestResolver.Resolve(point.XPos, point.YPos, focused: false);
             var peekResponse = await _domain.Repository
-                .GetAsync(request, Context.ConnectionAborted)
+                .GetElementChainAsync(request, Context.ConnectionAborted)
                 .ConfigureAwait(false);
 
             // Return the extension-produced chain only to the consumer that requested it.
@@ -101,7 +101,7 @@ namespace G4.Recorders.Chromium.Domain.Hubs
             // Select focused lookup only because this legacy hub method carries no coordinates.
             var request = RecorderPeekRequestResolver.Resolve(x: null, y: null, focused: true);
             var peekResponse = await _domain.Repository
-                .GetAsync(request, Context.ConnectionAborted)
+                .GetElementChainAsync(request, Context.ConnectionAborted)
                 .ConfigureAwait(false);
 
             // Return the extension-produced chain only to the consumer that requested it.
@@ -122,7 +122,7 @@ namespace G4.Recorders.Chromium.Domain.Hubs
             // Select current-pointer lookup only because this method carries neither coordinates nor focus intent.
             var request = RecorderPeekRequestResolver.Resolve(x: null, y: null, focused: false);
             var peekResponse = await _domain.Repository
-                .GetAsync(request, Context.ConnectionAborted)
+                .GetElementChainAsync(request, Context.ConnectionAborted)
                 .ConfigureAwait(false);
 
             // Return the extension-produced chain only to the consumer that requested it.

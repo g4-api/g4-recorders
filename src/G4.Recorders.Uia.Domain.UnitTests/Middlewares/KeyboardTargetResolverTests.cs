@@ -257,7 +257,7 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
                 throw new InvalidOperationException("Pointer movement is not part of keyboard target tests.");
             }
 
-            public UiaChainModel Peek()
+            public UiaChainModel GetElementChain()
             {
                 // Count focused lookups so paired and repeated transitions prove they avoid extra UIA work.
                 FocusPeekCount++;
@@ -271,7 +271,7 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
                 return _focusChains.Dequeue();
             }
 
-            public UiaChainModel Peek(int x, int y)
+            public UiaChainModel GetElementChain(int x, int y)
             {
                 throw new InvalidOperationException("Coordinate lookup is not part of keyboard target tests.");
             }

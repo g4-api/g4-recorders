@@ -28,7 +28,7 @@ namespace G4.Recorders.Chromium.Domain
         /// <param name="request">The normalized coordinate, focus, or current-pointer request.</param>
         /// <param name="cancellationToken">Stops waiting when the caller disconnects or abandons the request.</param>
         /// <returns>The resolved chain, or an empty chain when no accessible element matched.</returns>
-        Task<ChromiumChainModel> GetAsync(RecorderPeekRequestModel request, CancellationToken cancellationToken);
+        Task<ChromiumChainModel> GetElementChainAsync(RecorderPeekRequestModel request, CancellationToken cancellationToken);
 
         /// <summary>
         /// Registers a SignalR connection as a recorder extension eligible to receive element queries.

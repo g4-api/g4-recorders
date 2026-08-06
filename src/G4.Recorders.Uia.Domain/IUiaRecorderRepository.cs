@@ -15,7 +15,7 @@ namespace G4.Recorders.Uia.Domain
         /// its ancestor chain representation, including an absolute XPath locator.
         /// </summary>
         /// <returns>A <see cref="UiaChainModel"/> representing the focused element and its ancestors, or an empty model if no element is currently focused.</returns>
-        UiaChainModel Peek();
+        UiaChainModel GetElementChain();
 
         /// <summary>
         /// Retrieves the ancestor chain of the UI Automation element located at the given screen coordinates.
@@ -23,7 +23,7 @@ namespace G4.Recorders.Uia.Domain
         /// <param name="x">The X-coordinate on the screen.</param>
         /// <param name="y">The Y-coordinate on the screen.</param>
         /// <returns>A <see cref="UiaChainModel"/> representing the ancestor chain of the element at the specified point, or <c>null</c> if no element is found.</returns>
-        UiaChainModel Peek(int x, int y);
+        UiaChainModel GetElementChain(int x, int y);
 
         /// <summary>
         /// Physically moves the cursor to the given coordinates, peeks the UI Automation element found there, and

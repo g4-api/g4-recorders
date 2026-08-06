@@ -257,12 +257,12 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
                 throw new InvalidOperationException("Pointer movement is not part of these tests.");
             }
 
-            public UiaChainModel Peek()
+            public UiaChainModel GetElementChain()
             {
                 throw new InvalidOperationException("Focused-element lookup is not part of these tests.");
             }
 
-            public UiaChainModel Peek(int x, int y)
+            public UiaChainModel GetElementChain(int x, int y)
             {
                 PointPeekCount++;
 

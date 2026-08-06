@@ -97,7 +97,7 @@ namespace G4.Recorders.Uia.Domain
         }
 
         /// <inheritdoc />
-        public UiaChainModel Peek()
+        public UiaChainModel GetElementChain()
         {
             // Create a new instance of the UI Automation engine.
             var automation = new CUIAutomation8();
@@ -122,7 +122,7 @@ namespace G4.Recorders.Uia.Domain
         }
 
         /// <inheritdoc />
-        public UiaChainModel Peek(int x, int y)
+        public UiaChainModel GetElementChain(int x, int y)
         {
             // Initialize the UI Automation engine.
             var automation = new CUIAutomation8();
@@ -154,8 +154,8 @@ namespace G4.Recorders.Uia.Domain
             // Physically settle the cursor first so hover-based UIA state matches the chain this call returns.
             MovePointer(x, y);
 
-            // Reuse the existing coordinate peek path so chain construction stays identical to a direct Peek call.
-            var chain = Peek(x, y);
+            // Reuse the existing coordinate lookup path so chain construction stays identical to a direct call.
+            var chain = GetElementChain(x, y);
 
             // Skip the offset computation entirely when the caller only needs the chain itself.
             if (skipOffset)

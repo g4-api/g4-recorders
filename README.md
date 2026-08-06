@@ -183,13 +183,13 @@ The **RecorderController** provides REST endpoints to peek at UI elements.
 
 ```bash
 # Peek at specific coordinates (x=250, y=300)
-curl "http://localhost:9955/api/v4/g4/recorder?x=250&y=300"
+curl "http://localhost:9955/api/v4/g4/recorder/element?x=250&y=300"
 
 # Peek at the currently focused element
-curl "http://localhost:9955/api/v4/g4/recorder?focused=true"
+curl "http://localhost:9955/api/v4/g4/recorder/element?focused=true"
 
 # Peek at the current physical cursor position
-curl "http://localhost:9955/api/v4/g4/recorder"
+curl "http://localhost:9955/api/v4/g4/recorder/element"
 ```
 
 The response is the ancestor `chain` object (same shape as the `chain` field in a recording event).
@@ -256,13 +256,13 @@ relative to the active frame viewport.
 
 ```bash
 # Peek at viewport coordinates
-curl "http://localhost:9956/api/v4/g4/recorder?x=250&y=300"
+curl "http://localhost:9956/api/v4/g4/recorder/element?x=250&y=300"
 
 # Peek at the focused element
-curl "http://localhost:9956/api/v4/g4/recorder?focused=true"
+curl "http://localhost:9956/api/v4/g4/recorder/element?focused=true"
 
 # Peek at the extension's current pointer position
-curl "http://localhost:9956/api/v4/g4/recorder"
+curl "http://localhost:9956/api/v4/g4/recorder/element"
 ```
 
 Supplying either coordinate selects coordinate mode and defaults the omitted axis to zero. Coordinates take

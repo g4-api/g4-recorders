@@ -61,7 +61,7 @@ namespace G4.Recorders.Uia.Domain.Hubs
         public Task SendPeek(RecorderPointModel point)
         {
             // Query the repository to get the UIA ancestor chain at the given coordinates.
-            var peekResponse = _repository.Peek(x: point.XPos, y: point.YPos);
+            var peekResponse = _repository.GetElementChain(x: point.XPos, y: point.YPos);
 
             // Send the result back to the calling client.
             return Clients.Caller.SendAsync(
@@ -75,7 +75,7 @@ namespace G4.Recorders.Uia.Domain.Hubs
         public Task SendPeek()
         {
             // Query the repository to get the UIA ancestor chain from the currently focused element.
-            var peekResponse = _repository.Peek();
+            var peekResponse = _repository.GetElementChain();
 
             // Send the result back to the calling client.
             return Clients.Caller.SendAsync(
@@ -94,7 +94,7 @@ namespace G4.Recorders.Uia.Domain.Hubs
             }
 
             // Reuse coordinate resolution so current-position and explicit-point chains remain identical.
-            var peekResponse = _repository.Peek(x: point.XPos, y: point.YPos);
+            var peekResponse = _repository.GetElementChain(x: point.XPos, y: point.YPos);
 
             return Clients.Caller.SendAsync(
                 method: "ReceivePeek",

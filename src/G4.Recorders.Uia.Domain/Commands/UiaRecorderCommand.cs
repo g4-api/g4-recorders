@@ -88,8 +88,8 @@ namespace G4.Recorders.Uia.Domain.Commands
             // Retrieve the ancestor chain based on the provided coordinates
             // or focused element if no coordinates.
             var chain = (!isX || !isY) && isFocused
-                ? repository.Peek()
-                : repository.Peek(x, y);
+                ? repository.GetElementChain()
+                : repository.GetElementChain(x, y);
 
             // Serialize the result to JSON and write to console.
             var json = JsonSerializer.Serialize(chain, s_jsonOptions);

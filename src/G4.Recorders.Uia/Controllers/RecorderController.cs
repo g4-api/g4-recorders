@@ -61,10 +61,10 @@ namespace G4.Recorders.Uia.Controllers
             return Ok(repository.MovePointer(x, y));
         }
 
-        [HttpGet]
+        [HttpGet("element")]
         #region *** OpenApi Documentation ***
         [SwaggerOperation(
-            Summary = "Peek UIA tree at screen coordinates",
+            Summary = "Get the UIA element chain at screen coordinates",
             Description = "Resolves the UI Automation element from supplied coordinates, focus, or the current cursor position and returns its ancestor chain for inspection."
         )]
         [SwaggerResponse(StatusCodes.Status200OK,
@@ -76,7 +76,7 @@ namespace G4.Recorders.Uia.Controllers
             type: typeof(object),
             contentTypes: MediaTypeNames.Application.Json)]
         #endregion
-        public IActionResult Peek(
+        public IActionResult GetElementChain(
             [FromQuery(Name = "x")]
             [SwaggerParameter(description: "The X screen coordinate in pixels (device-independent if applicable).")]
             int? x,
@@ -96,13 +96,13 @@ namespace G4.Recorders.Uia.Controllers
             // Honor any supplied coordinate and use zero for its missing axis before focus is considered.
             if (request.Mode == RecorderPeekMode.Coordinates)
             {
-                return Ok(repository.Peek(request.X, request.Y));
+                return Ok(repository.GetElementChain(request.X, request.Y));
             }
 
             // Resolve keyboard focus only when both coordinate values were omitted and focus was requested.
             if (request.Mode == RecorderPeekMode.Focused)
             {
-                return Ok(repository.Peek());
+                return Ok(repository.GetElementChain());
             }
 
             // Sample the physical cursor only for the final no-coordinate, no-focus fallback.
@@ -114,7 +114,7 @@ namespace G4.Recorders.Uia.Controllers
             }
 
             // Resolve the sampled point through the existing coordinate path so chain construction remains canonical.
-            return Ok(repository.Peek(point.XPos, point.YPos));
+            return Ok(repository.GetElementChain(point.XPos, point.YPos));
         }
 
         [HttpPost("ground")]

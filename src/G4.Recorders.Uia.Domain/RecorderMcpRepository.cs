@@ -182,12 +182,12 @@ namespace G4.Recorders.Uia.Domain
 
                 if (request.Mode == RecorderPeekMode.Coordinates)
                 {
-                    return repository.Peek(request.X, request.Y);
+                    return repository.GetElementChain(request.X, request.Y);
                 }
 
                 if (request.Mode == RecorderPeekMode.Focused)
                 {
-                    return repository.Peek();
+                    return repository.GetElementChain();
                 }
 
                 if (!cursorPositionProvider.GetCurrent(out var point))
@@ -195,7 +195,7 @@ namespace G4.Recorders.Uia.Domain
                     throw new InvalidOperationException("The current physical cursor position is unavailable.");
                 }
 
-                return repository.Peek(point.XPos, point.YPos);
+                return repository.GetElementChain(point.XPos, point.YPos);
             }
         }
 

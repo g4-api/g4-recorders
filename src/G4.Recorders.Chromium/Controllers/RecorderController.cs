@@ -143,10 +143,10 @@ namespace G4.Recorders.Chromium.Controllers
             }
         }
 
-        [HttpGet]
+        [HttpGet("element")]
         #region *** OpenApi Documentation ***
         [SwaggerOperation(
-            Summary = "Peek the Chromium DOM",
+            Summary = "Get the Chromium DOM element chain",
             Description = "Resolves a DOM element from viewport coordinates, focus, or the current pointer position. " +
                 "Any supplied coordinate takes precedence and a missing coordinate axis defaults to zero."
         )]
@@ -163,7 +163,7 @@ namespace G4.Recorders.Chromium.Controllers
             type: typeof(ProblemDetails),
             contentTypes: MediaTypeNames.Application.Json)]
         #endregion
-        public async Task<IActionResult> PeekAsync(
+        public async Task<IActionResult> GetElementChainAsync(
             [FromQuery(Name = "x")]
             [SwaggerParameter(description: "The optional X coordinate relative to the active Chromium frame viewport.")]
             int? x,
@@ -185,7 +185,7 @@ namespace G4.Recorders.Chromium.Controllers
             try
             {
                 // Wait for the connected extension to resolve the selected DOM target and return its chain.
-                var chain = await repository.GetAsync(request, cancellationToken).ConfigureAwait(false);
+                var chain = await repository.GetElementChainAsync(request, cancellationToken).ConfigureAwait(false);
 
                 return Ok(chain);
             }

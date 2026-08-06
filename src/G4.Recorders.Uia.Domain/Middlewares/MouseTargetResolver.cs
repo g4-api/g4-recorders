@@ -66,7 +66,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 paramName: nameof(request));
 
             // Prefer the pre-dispatch hover chain so mouse-down UI mutations cannot change identity.
-            var chain = request.CapturedChain ?? _repository.Peek(request.X, request.Y);
+            var chain = request.CapturedChain ?? _repository.GetElementChain(request.X, request.Y);
 
             // Replace stale state when a duplicate press arrives for the same button.
             lock (_syncRoot)
@@ -151,7 +151,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             }
 
             // Preserve legacy behavior for sessions that begin after a press event.
-            var fallbackChain = _repository.Peek(x, y);
+            var fallbackChain = _repository.GetElementChain(x, y);
             return new MouseTargetResolution(fallbackChain, usedFallback: true);
         }
         #endregion

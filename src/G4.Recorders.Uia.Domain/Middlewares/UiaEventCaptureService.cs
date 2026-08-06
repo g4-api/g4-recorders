@@ -614,7 +614,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             try
             {
                 // Resolve the currently focused element off the hook thread before publishing it.
-                chain = _repository.Peek();
+                chain = _repository.GetElementChain();
             }
             catch (Exception exception)
             {
@@ -836,7 +836,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             // Build a structured wheel event with scroll details.
             var wheelMessage = new UiaEventModel
             {
-                Chain = _repository.Peek(x: mouse.pt.X, y: mouse.pt.Y),
+                Chain = _repository.GetElementChain(x: mouse.pt.X, y: mouse.pt.Y),
                 Event = $"{GetMouseEventName(eventRecord.WParam)} {direction}",
                 Timestamp = eventRecord.Timestamp,
                 Type = "Mouse",
@@ -883,7 +883,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
 
                 default:
                     // Preserve coordinate-based resolution for non-button mouse events.
-                    return _repository.Peek(mouse.pt.X, mouse.pt.Y);
+                    return _repository.GetElementChain(mouse.pt.X, mouse.pt.Y);
             }
         }
 
@@ -1297,7 +1297,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             try
             {
                 // Materialize the complete chain off the hook thread before exposing it as a pre-click snapshot.
-                chain = _repository.Peek(pointBeforeResolution.X, pointBeforeResolution.Y);
+                chain = _repository.GetElementChain(pointBeforeResolution.X, pointBeforeResolution.Y);
             }
             catch (Exception exception)
             {

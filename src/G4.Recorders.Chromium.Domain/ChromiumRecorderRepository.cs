@@ -74,7 +74,7 @@ namespace G4.Recorders.Chromium.Domain
         }
 
         /// <inheritdoc />
-        public async Task<ChromiumChainModel> GetAsync(
+        public async Task<ChromiumChainModel> GetElementChainAsync(
             RecorderPeekRequestModel request,
             CancellationToken cancellationToken)
         {
