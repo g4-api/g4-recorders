@@ -7,8 +7,11 @@ using Microsoft.AspNetCore.Mvc;
 
 using Swashbuckle.AspNetCore.Annotations;
 
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace G4.Recorders.Uia.Controllers
 {
@@ -19,6 +22,60 @@ namespace G4.Recorders.Uia.Controllers
         "endpoints on RecorderController - both call the same underlying repository, so behavior never diverges.")]
     public class McpController(IRecorderMcpRepository repository) : ControllerBase
     {
+        [HttpGet]
+        #region *** OpenApi Documentation ***
+        [SwaggerOperation(
+            Summary = "Establish SSE stream",
+            Description = "Opens a text/event-stream channel for real-time updates and heartbeats (n8n-compatible)."
+        )]
+        [SwaggerResponse(StatusCodes.Status200OK, description: "SSE stream established.", contentTypes: "text/event-stream")]
+        #endregion
+        public async Task Get(CancellationToken token)
+        {
+            // Required SSE headers (n8n is strict about these)
+            Response.StatusCode = StatusCodes.Status200OK;
+            Response.ContentType = "text/event-stream";
+            Response.Headers.CacheControl = "no-cache";
+            Response.Headers.Connection = "keep-alive";
+            Response.Headers["X-Accel-Buffering"] = "no";    // disable nginx buffering if present
+            Response.Headers.ContentEncoding = "identity";   // prevent gzip on proxies
+
+            // Start the response immediately so clients consider the stream "open"
+            await Response.StartAsync(token);
+
+            // Send an initial comment + heartbeat quickly so n8n marks it connected
+            await Response.WriteAsync(": connected\n\n", token);
+            await Response.Body.FlushAsync(token);
+
+            // Periodic heartbeats (comments are valid SSE frames and cheaper than data events)
+            // Keep them reasonably frequent to survive proxies/load balancers.
+            var heartbeat = TimeSpan.FromSeconds(15);
+
+            try
+            {
+                while (!token.IsCancellationRequested && !HttpContext.RequestAborted.IsCancellationRequested)
+                {
+                    await Task.Delay(heartbeat, token);
+
+                    // Heartbeat
+                    await Response.WriteAsync(": heartbeat\n\n", token);
+                    await Response.Body.FlushAsync(token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Client disconnected or server is shutting down – swallow gracefully.
+            }
+            finally
+            {
+                // Try to complete the response cleanly.
+                if (!HttpContext.RequestAborted.IsCancellationRequested)
+                {
+                    await Response.CompleteAsync();
+                }
+            }
+        }
+
         [HttpPost]
         #region *** OpenApi Documentation ***
         [SwaggerOperation(
