@@ -2,7 +2,9 @@ using G4.Recorders.Common.Domain.Extensions;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -22,21 +24,10 @@ namespace G4.Recorders.Uia.Domain.Extensions
         // matches the appsettings G4:Uia:IdentityAttributes seed, so the primary attribute is Name.
         private static readonly string[] s_defaultIdentityAttributes = ["Name", "AutomationId"];
 
-        // Maps a supported identity attribute name to the reader that extracts its value from a UIA element. Add an
-        // entry here to make a new attribute available to locator generation; unlisted names resolve to null (absent).
-        private static readonly Dictionary<string, Func<IUIAutomationElement, string>> s_attributeReaders =
-            new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["AcceleratorKey"] = element => Safe(() => element.CurrentAcceleratorKey),
-                ["AccessKey"] = element => Safe(() => element.CurrentAccessKey),
-                ["AutomationId"] = element => Safe(() => element.CurrentAutomationId),
-                ["ClassName"] = element => Safe(() => element.CurrentClassName),
-                ["FrameworkId"] = element => Safe(() => element.CurrentFrameworkId),
-                ["HelpText"] = element => Safe(() => element.CurrentHelpText),
-                ["ItemStatus"] = element => Safe(() => element.CurrentItemStatus),
-                ["ItemType"] = element => Safe(() => element.CurrentItemType),
-                ["Name"] = element => Safe(() => element.CurrentName)
-            };
+        // Maps every UIA property name (the field name stripped of its UIA_ prefix and PropertyId suffix, for example
+        // "Name", "AutomationId", "ValueValue", "AnnotationDateTime") to its property id. This is the same resolvable
+        // set the DriverServer XpathParser exposes, so a locator this recorder generates round-trips back through it.
+        private static readonly Dictionary<string, int> s_propertyIds = BuildPropertyIds();
         #endregion
 
         #region *** Methods      ***
@@ -347,18 +338,106 @@ namespace G4.Recorders.Uia.Domain.Extensions
             return (attribute1, attribute2);
         }
 
-        // Reads one supported attribute value from a UIA element, returning null for an unlisted attribute or a
-        // blank value so downstream comparisons treat both as an absent identifier.
+        // Reads one attribute value from a UIA element, accepting the concatenated, dotted, and Pattern-qualified
+        // spellings of a property name. Returns null for an unknown attribute, an unsupported or complex value, or a
+        // blank value so downstream comparisons treat all of them as an absent identifier.
         private static string ResolveAttributeValue(IUIAutomationElement element, string attribute)
         {
-            if (element == null || string.IsNullOrEmpty(attribute) || !s_attributeReaders.TryGetValue(attribute, out var reader))
+            if (element == null || !TryResolvePropertyId(attribute, out var propertyId))
             {
                 return null;
             }
 
-            var value = reader(element);
+            // Read the value generically so any UIA property resolves, not just the ones with a dedicated accessor.
+            var value = Safe(() => element.GetCurrentPropertyValue(propertyId));
 
-            return string.IsNullOrWhiteSpace(value) ? null : value;
+            return StringifyPropertyValue(value);
+        }
+
+        // Resolves a property name to its UIA property id, accepting the concatenated, dotted, and Pattern-qualified
+        // spellings. Returns false for a null, empty, or unknown attribute so callers treat it as an absent identifier.
+        internal static bool TryResolvePropertyId(string attribute, out int propertyId)
+        {
+            propertyId = 0;
+
+            if (string.IsNullOrEmpty(attribute))
+            {
+                return false;
+            }
+
+            // Normalize a dotted or Pattern-qualified name to the concatenated key the property map is built with.
+            var normalized = NormalizeAttributeName(attribute);
+
+            return s_propertyIds.TryGetValue(normalized, out propertyId);
+        }
+
+        // Builds the property name to id map by reflecting over the UIA_PropertyIds constants and stripping each field
+        // name's UIA_ prefix and PropertyId suffix, mirroring the DriverServer XpathParser's resolvable property set.
+        private static Dictionary<string, int> BuildPropertyIds()
+        {
+            const string prefix = "UIA_";
+            const string suffix = "PropertyId";
+
+            var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var field in typeof(UIA_PropertyIds).GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                var name = field.Name;
+
+                // Skip any member that does not follow the UIA_<Name>PropertyId convention.
+                if (!name.StartsWith(prefix, StringComparison.Ordinal) || !name.EndsWith(suffix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var key = name[prefix.Length..^suffix.Length];
+                map[key] = (int)field.GetValue(null);
+            }
+
+            return map;
+        }
+
+        // Normalizes a dotted or Pattern-qualified property name into the concatenated key the property map uses, for
+        // example "Annotation.DateTime" and "AnnotationPattern.DateTime" both become "AnnotationDateTime". Names without
+        // a dot are returned unchanged so simple element properties keep resolving directly.
+        internal static string NormalizeAttributeName(string attribute)
+        {
+            const string patternSuffix = "Pattern";
+
+            if (attribute.IndexOf('.') < 0)
+            {
+                return attribute;
+            }
+
+            var builder = new StringBuilder(attribute.Length);
+
+            foreach (var segment in attribute.Split('.'))
+            {
+                // Drop the trailing "Pattern" qualifier so the Pattern-qualified form collapses onto the concatenated key.
+                var part = segment.Length > patternSuffix.Length
+                    && segment.EndsWith(patternSuffix, StringComparison.OrdinalIgnoreCase)
+                    ? segment[..^patternSuffix.Length]
+                    : segment;
+
+                builder.Append(part);
+            }
+
+            return builder.ToString();
+        }
+
+        // Converts a raw UIA property value into a locator-usable string, or null when it cannot serve as an identifier.
+        // Strings pass through (blanks become null); scalar values are formatted invariantly; arrays, the UIA
+        // not-supported sentinel, and other complex values resolve to null.
+        private static string StringifyPropertyValue(object value)
+        {
+            return value switch
+            {
+                null => null,
+                string text => string.IsNullOrWhiteSpace(text) ? null : text,
+                bool or byte or short or int or long or float or double or decimal
+                    => System.Convert.ToString(value, CultureInfo.InvariantCulture),
+                _ => null
+            };
         }
 
         // TODO: Export all properties that can be safely retrieved from the element, such as IsContentElement, IsControlElement, IsEnabled, etc.
