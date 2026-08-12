@@ -20,17 +20,27 @@ namespace G4.Recorders.Uia.PathFinder
         private static readonly StringComparer s_comparer = StringComparer.OrdinalIgnoreCase;
 
         // Mapping of control types to UI Automation control type IDs
-        private static readonly Dictionary<string, int> s_controlTypeMapping = typeof(UIA_ControlTypeIds)
+        private static readonly Dictionary<string, int> _controlTypeMapping = typeof(UIA_ControlTypeIds)
             .GetFields(BindingFlags.Public | BindingFlags.Static)
             .ToDictionary(
-                k => Regex.Match(k.Name, "(?<=UIA_)\\w+(?=ControlTypeId)").Value,
+                k => Regex.Match(
+                    input: k.Name,
+                    pattern: "(?<=UIA_)\\w+(?=ControlTypeId)",
+                    options: RegexOptions.IgnoreCase,
+                    matchTimeout: TimeSpan.FromSeconds(30)
+                ).Value,
                 v => (int)v.GetValue(null), s_comparer);
 
         // Mapping of property names to UI Automation property IDs
-        private static readonly Dictionary<string, int> s_propertyIdMapping = typeof(UIA_PropertyIds)
+        private static readonly Dictionary<string, int> _propertyIdMapping = typeof(UIA_PropertyIds)
             .GetFields(BindingFlags.Public | BindingFlags.Static)
             .ToDictionary(
-                k => Regex.Match(k.Name, "(?<=UIA_)\\w+(?=PropertyId)").Value,
+                k => Regex.Match(
+                    input: k.Name,
+                    pattern: "(?<=UIA_)\\w+(?=PropertyId)",
+                    options: RegexOptions.IgnoreCase,
+                    matchTimeout: TimeSpan.FromSeconds(30)
+                ).Value,
                 v => (int)v.GetValue(null), s_comparer);
 
         /// <summary>
@@ -54,7 +64,12 @@ namespace G4.Recorders.Uia.PathFinder
             const string pattern = @"(?<controlType>/{0,2}\w+)|(?<logical>\band\b|\bor\b|\bnot\b)|(?<parentheses>[\(\)])|(?<condition>@[\w\-]+='[^']*')";
 
             // Find matches in the xpath string based on the defined pattern
-            var matches = Regex.Matches(xpath, pattern);
+            var matches = Regex.Matches(
+                input: xpath,
+                pattern: pattern,
+                options: RegexOptions.IgnoreCase,
+                matchTimeout: TimeSpan.FromSeconds(30)
+            );
 
             // Convert the matches to a list of strings, trim whitespace, and filter out empty tokens
             return [.. matches.Cast<Match>()
@@ -75,13 +90,17 @@ namespace G4.Recorders.Uia.PathFinder
             IUIAutomationCondition controlTypeCondition = null;
 
             // Create a regular expression pattern for logical operators (and, or, not) in a case-insensitive manner
-            var logicalOperatorPattern = new Regex("(?is)^(and|or|not)$");
+            var logicalOperatorPattern = new Regex(
+                pattern: "(?is)^(and|or|not)$",
+                options: RegexOptions.None,
+                matchTimeout: TimeSpan.FromSeconds(30)
+            );
 
             // Process each segment in the list of segments from the XPath expression string
             foreach (var segment in segments)
             {
                 // Check if the segment is a control type
-                if (s_controlTypeMapping.ContainsKey(segment))
+                if (_controlTypeMapping.ContainsKey(segment))
                 {
                     // Create a control type condition
                     controlTypeCondition = NewControlTypeCondition(segment);
@@ -147,7 +166,7 @@ namespace G4.Recorders.Uia.PathFinder
         private static IUIAutomationCondition NewControlTypeCondition(string controlType)
         {
             // Check if the control type is mapped to a control type ID
-            var isId = s_controlTypeMapping.TryGetValue(key: controlType, out int id);
+            var isId = _controlTypeMapping.TryGetValue(key: controlType, out int id);
 
             // Throw an exception if the control type is not supported
             if (!isId)
@@ -208,10 +227,16 @@ namespace G4.Recorders.Uia.PathFinder
                 : PropertyConditionFlags.PropertyConditionFlags_None;
 
             // Remove "partial" from the property name if present
-            propertyName = Regex.Replace(input: propertyName, pattern: "(?is)^partial", replacement: string.Empty);
+            propertyName = Regex.Replace(
+                input: propertyName,
+                pattern: "(?is)^partial",
+                replacement: string.Empty,
+                options: RegexOptions.None,
+                matchTimeout: TimeSpan.FromSeconds(30)
+            );
 
             // Check if the property name is mapped to a property ID
-            var isId = s_propertyIdMapping.TryGetValue(key: propertyName, out int id);
+            var isId = _propertyIdMapping.TryGetValue(key: propertyName, out int id);
 
             // Throw an exception if the property is not supported
             if (!isId)

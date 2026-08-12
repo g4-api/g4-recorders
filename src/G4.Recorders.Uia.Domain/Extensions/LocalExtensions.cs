@@ -17,7 +17,7 @@ namespace G4.Recorders.Uia.Domain.Extensions
     /// </summary>
     internal static class LocalExtensions
     {
-        #region *** Fields      ***
+        #region *** Fields       ***
         // The ordered identity attributes used when a caller does not supply an explicit collection. The order
         // matches the appsettings G4:Uia:IdentityAttributes seed, so the primary attribute is Name.
         private static readonly string[] s_defaultIdentityAttributes = ["Name", "AutomationId"];
@@ -39,8 +39,7 @@ namespace G4.Recorders.Uia.Domain.Extensions
             };
         #endregion
 
-        #region *** Methods     ***
-
+        #region *** Methods      ***
         /// <summary>
         /// Converts an <see cref="IUIAutomationElement"/> into a <see cref="UiaNodeModel"/> representation.
         /// </summary>
@@ -615,11 +614,9 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 return fallback;
             }
         }
-
         #endregion
 
         #region *** Nested Types ***
-
         // Carries the live UIA objects needed to enumerate the selected element's siblings.
         private sealed class SiblingContext
         {
@@ -663,7 +660,6 @@ namespace G4.Recorders.Uia.Domain.Extensions
 
             public bool TargetFound { get; set; }
         }
-
         #endregion
     }
 }
