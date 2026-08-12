@@ -1,3 +1,6 @@
+using G4.Recorders.Common.Domain.Extensions;
+using G4.Recorders.Common.Domain.Models;
+
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,10 +16,15 @@ namespace G4.Recorders.Chromium.Controllers
     public class PingController : ControllerBase
     {
         [HttpGet]
+        #region *** OpenApi Documentation ***
         [SwaggerOperation(
-            summary: "Health Check Endpoint",
-            description: "Returns a simple `Pong` message to confirm that the service is running.")]
-        [SwaggerResponse(statusCode: StatusCodes.Status200OK, description: "Service is active and responding.", type: typeof(string), contentTypes: MediaTypeNames.Text.Plain)]
-        public IActionResult TestConnection() => Ok("Pong");
+            Summary = "Health Check Endpoint",
+            Description = "Returns recorder-host system details and a heartbeat payload.")]
+        [SwaggerResponse(StatusCodes.Status200OK,
+            description: "Service is active and responding with host metadata.",
+            type: typeof(RecorderPingModel),
+            contentTypes: MediaTypeNames.Application.Json)]
+        #endregion
+        public IActionResult TestConnection() => Ok(ControllerUtilities.NewPingResponse());
     }
 }
