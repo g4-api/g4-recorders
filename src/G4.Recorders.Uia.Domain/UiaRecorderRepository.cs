@@ -7,6 +7,7 @@ using G4.Recorders.Uia.Domain.Models;
 using UIAutomationClient;
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -26,7 +27,13 @@ namespace G4.Recorders.Uia.Domain
     /// physical-cursor P/Invoke this repository's own current-pointer peek path already depends on instead of
     /// duplicating it.
     /// </param>
-    public class UiaRecorderRepository(IUiaCursorPositionProvider cursorPositionProvider) : IUiaRecorderRepository
+    /// <param name="identityAttributes">
+    /// The ordered identity attributes (primary first) used for locator generation, typically bound from the
+    /// <c>G4:Uia:IdentityAttributes</c> configuration. A null or empty value applies the extension defaults.
+    /// </param>
+    public class UiaRecorderRepository(
+        IUiaCursorPositionProvider cursorPositionProvider,
+        IReadOnlyList<string> identityAttributes) : IUiaRecorderRepository
     {
         #region *** Constants    ***
         // Restores a minimized window before a foreground-focus attempt, matching Win32's SW_RESTORE value.
@@ -36,6 +43,23 @@ namespace G4.Recorders.Uia.Domain
         #region *** Fields       ***
         // Reads the settled physical cursor position after MovePointer, shared with the current-pointer peek path.
         private readonly IUiaCursorPositionProvider _cursorPositionProvider = cursorPositionProvider;
+
+        // The ordered identity attributes used to build UIA locators; null lets the extension apply its defaults.
+        private readonly IReadOnlyList<string> _identityAttributes = identityAttributes;
+        #endregion
+
+        #region *** Constructors ***
+        /// <summary>
+        /// Initializes a new instance that builds UIA locators with the default identity attributes.
+        /// </summary>
+        /// <param name="cursorPositionProvider">
+        /// Reads back the physical cursor position after <see cref="MovePointer"/> settles it, reusing the same
+        /// physical-cursor P/Invoke this repository's own current-pointer peek path already depends on instead of
+        /// duplicating it.
+        /// </param>
+        public UiaRecorderRepository(IUiaCursorPositionProvider cursorPositionProvider)
+            : this(cursorPositionProvider, identityAttributes: null)
+        { }
         #endregion
 
         #region *** Methods      ***
@@ -107,11 +131,11 @@ namespace G4.Recorders.Uia.Domain
 
             // Build the ancestor chain for the focused element,
             // or return a new empty model if no element was found.
-            var chain = automation.NewAncestorChain(element) ?? new UiaChainModel();
+            var chain = automation.NewAncestorChain(element, _identityAttributes) ?? new UiaChainModel();
 
             // Keep the canonical absolute path as the executable locator because removing ancestors can
             // reintroduce ambiguity when identical branches exist elsewhere below the same window.
-            chain.FallbackLocator = chain.ResolveLocator();
+            chain.FallbackLocator = chain.ResolveLocator(_identityAttributes);
             chain.Locator = chain.FallbackLocator;
 
             // Indicate that this chain was triggered by a focus action.
@@ -131,14 +155,14 @@ namespace G4.Recorders.Uia.Domain
             var element = automation.ElementFromPoint(pt: new tagPOINT { x = x, y = y });
 
             // If an element was found, build and return its ancestor chain; otherwise return null.
-            var chain = automation.NewAncestorChain(element) ?? new UiaChainModel();
+            var chain = automation.NewAncestorChain(element, _identityAttributes) ?? new UiaChainModel();
 
             // Set the point information in the chain model if it exists.
             chain.Point = new RecorderPointModel { XPos = x, YPos = y };
 
             // Keep the canonical absolute path as the executable locator because removing ancestors can
             // reintroduce ambiguity when identical branches exist elsewhere below the same window.
-            chain.FallbackLocator = chain.ResolveLocator();
+            chain.FallbackLocator = chain.ResolveLocator(_identityAttributes);
             chain.Locator = chain.FallbackLocator;
 
             // Indicate that this chain was triggered by a hover action.

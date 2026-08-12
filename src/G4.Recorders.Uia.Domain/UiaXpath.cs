@@ -30,7 +30,6 @@ namespace G4.Recorders.Uia.Domain
         #endregion
 
         #region *** Methods      ***
-
         /// <summary>
         /// Splits a locator into UIA hierarchy segments.
         /// </summary>
@@ -204,7 +203,6 @@ namespace G4.Recorders.Uia.Domain
             // Report both cursor advancement and scope intent without exposing mutable parsing state.
             return (Index: index, IsDescendant: separatorLength > 1);
         }
-
         #endregion
 
         #region *** Nested Types ***

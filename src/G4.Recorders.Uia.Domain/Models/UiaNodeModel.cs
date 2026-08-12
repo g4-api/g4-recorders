@@ -29,34 +29,44 @@ namespace G4.Recorders.Uia.Domain.Models
         public int SiblingIndexOfSameControlType { get; set; } = 1;
 
         /// <summary>
-        /// Gets or sets the number of same-control-type siblings that also match this element's automation ID.
+        /// Gets or sets the resolved value of the primary identity attribute (the first configured attribute).
         /// </summary>
-        internal int AutomationIdMatchCount { get; set; }
+        internal string Attribute1Value { get; set; }
 
         /// <summary>
-        /// Gets or sets the 1-based position within siblings matching the control type and automation ID.
+        /// Gets or sets the number of same-control-type siblings that also match the primary identity attribute.
         /// </summary>
-        internal int AutomationIdMatchIndex { get; set; } = 1;
+        internal int Attribute1MatchCount { get; set; }
 
         /// <summary>
-        /// Gets or sets the number of same-control-type siblings matching both stable identity properties.
+        /// Gets or sets the 1-based position within siblings matching the control type and primary identity attribute.
+        /// </summary>
+        internal int Attribute1MatchIndex { get; set; } = 1;
+
+        /// <summary>
+        /// Gets or sets the resolved value of the secondary identity attribute (the second configured attribute).
+        /// </summary>
+        internal string Attribute2Value { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number of same-control-type siblings that also match the secondary identity attribute.
+        /// </summary>
+        internal int Attribute2MatchCount { get; set; }
+
+        /// <summary>
+        /// Gets or sets the 1-based position within siblings matching the control type and secondary identity attribute.
+        /// </summary>
+        internal int Attribute2MatchIndex { get; set; } = 1;
+
+        /// <summary>
+        /// Gets or sets the number of same-control-type siblings matching both configured identity attributes.
         /// </summary>
         internal int IdentityMatchCount { get; set; }
 
         /// <summary>
-        /// Gets or sets the 1-based position within siblings matching both stable identity properties.
+        /// Gets or sets the 1-based position within siblings matching both configured identity attributes.
         /// </summary>
         internal int IdentityMatchIndex { get; set; } = 1;
-
-        /// <summary>
-        /// Gets or sets the number of same-control-type siblings that also match this element's name.
-        /// </summary>
-        internal int NameMatchCount { get; set; }
-
-        /// <summary>
-        /// Gets or sets the 1-based position within siblings matching the control type and name.
-        /// </summary>
-        internal int NameMatchIndex { get; set; } = 1;
 
         #endregion
     }
