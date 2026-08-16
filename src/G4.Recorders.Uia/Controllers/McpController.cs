@@ -16,8 +16,8 @@ using System.Threading.Tasks;
 namespace G4.Recorders.Uia.Controllers
 {
     [ApiController]
-    [Route("/api/v4/g4/mcp")]
-    [SwaggerTag(description: "Exposes the recorder's fixed 5-tool catalog (Peek, GetScreenshot, MovePointer, " +
+    [Route("/api/v4/g4/recorders/uia/mcp")]
+    [SwaggerTag(description: "Exposes the recorder's fixed 4-tool catalog (GetScreenshot, MovePointer, " +
         "SetWindowFocus, ResolveGroundedElement) over MCP JSON-RPC, as an alternative to the equivalent REST " +
         "endpoints on RecorderController - both call the same underlying repository, so behavior never diverges.")]
     public class McpController(IRecorderMcpRepository repository) : ControllerBase

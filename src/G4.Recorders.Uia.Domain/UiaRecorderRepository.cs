@@ -176,10 +176,11 @@ namespace G4.Recorders.Uia.Domain
         public UiaChainModel ResolveGroundedElement(int x, int y, bool skipOffset)
         {
             // Physically settle the cursor first so hover-based UIA state matches the chain this call returns.
-            MovePointer(x, y);
+            var settledPoint = MovePointer(x, y);
 
-            // Reuse the existing coordinate lookup path so chain construction stays identical to a direct call.
-            var chain = GetElementChain(x, y);
+            // Resolve the element at the confirmed physical cursor position, not the requested point, so pointer
+            // clamping or another operating-system adjustment cannot separate the hover state from the locator.
+            var chain = GetElementChain(settledPoint.XPos, settledPoint.YPos);
 
             // Skip the offset computation entirely when the caller only needs the chain itself.
             if (skipOffset)
@@ -189,7 +190,7 @@ namespace G4.Recorders.Uia.Domain
 
             // Resolve the pointer's pixel offset from the trigger element's top-left corner using the exact math
             // already used for live mouse-event recording, so grounding and recorded clicks agree on offset semantics.
-            chain.Offset = MouseTargetResolver.ResolveOffset(chain, x, y);
+            chain.MouseOffset = MouseTargetResolver.ResolveOffset(chain, settledPoint.XPos, settledPoint.YPos);
 
             return chain;
         }

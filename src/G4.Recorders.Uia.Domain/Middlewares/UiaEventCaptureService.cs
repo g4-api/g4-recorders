@@ -786,14 +786,21 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             {
                 // Resolve the target once so the chain and its derived pointer offset describe the same UIA element.
                 var chain = ResolveMouseTarget(eventRecord);
-                var offset = MouseTargetResolver.ResolveOffset(chain, mouse.pt.X, mouse.pt.Y);
 
-                // Build a structured event model with absolute and element-relative pointer coordinates.
+                // Record the element-relative pointer offset on the chain itself so recording and grounding expose it
+                // in the same place. The click chain can be a retained instance, but each event is serialized and
+                // broadcast immediately with its own coordinates, so this mutation is never observed mid-flight.
+                if (chain != null)
+                {
+                    chain.MouseOffset = MouseTargetResolver.ResolveOffset(chain, mouse.pt.X, mouse.pt.Y);
+                }
+
+                // Build a structured event model with absolute pointer coordinates; the element-relative offset now
+                // travels on the chain.
                 var clickMessage = new UiaEventModel
                 {
                     Chain = chain,
                     Event = GetMouseEventName(eventRecord.WParam),
-                    Offset = offset,
                     Timestamp = eventRecord.Timestamp,
                     Type = "Mouse",
                     Value = new
@@ -833,10 +840,19 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 direction = delta > 0 ? "Right" : "Left";
             }
 
+            // Resolve the wheel target and record its element-relative pointer offset on the chain, matching the
+            // button-click path so every mouse event exposes the offset in the same place.
+            var wheelChain = _repository.GetElementChain(x: mouse.pt.X, y: mouse.pt.Y);
+
+            if (wheelChain != null)
+            {
+                wheelChain.MouseOffset = MouseTargetResolver.ResolveOffset(wheelChain, mouse.pt.X, mouse.pt.Y);
+            }
+
             // Build a structured wheel event with scroll details.
             var wheelMessage = new UiaEventModel
             {
-                Chain = _repository.GetElementChain(x: mouse.pt.X, y: mouse.pt.Y),
+                Chain = wheelChain,
                 Event = $"{GetMouseEventName(eventRecord.WParam)} {direction}",
                 Timestamp = eventRecord.Timestamp,
                 Type = "Mouse",

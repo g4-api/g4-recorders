@@ -11,7 +11,7 @@ using System.Net.Mime;
 namespace G4.Recorders.Uia.Controllers
 {
     [ApiController]
-    [Route("/api/v4/g4/[controller]")]
+    [Route("/api/v4/g4/recorders/uia/[controller]")]
     [SwaggerTag(description: "Utilities for peeking UI Automation elements and returning ancestor chains for debugging and inspection.")]
     public class RecorderController(
         IUiaRecorderRepository repository,
@@ -121,9 +121,9 @@ namespace G4.Recorders.Uia.Controllers
         #region *** OpenApi Documentation ***
         [SwaggerOperation(
             Summary = "Ground a coordinate against the UIA tree",
-            Description = "Physically moves the cursor to the given coordinates, peeks the UI Automation element " +
-                "found there, and - unless skipOffset is set - resolves the pointer's pixel offset from that " +
-                "element's top-left corner. Combines MovePointer, Peek, and offset resolution into one atomic call."
+            Description = "Physically moves the cursor to the given coordinates, resolves the UI Automation " +
+                "element at the settled cursor position, and - unless skipOffset is set - resolves the pointer's " +
+                "pixel offset from that element's top-left corner in one atomic call."
         )]
         [SwaggerResponse(StatusCodes.Status200OK,
             description: "Ancestor chain successfully resolved, with Offset populated unless skipped.",

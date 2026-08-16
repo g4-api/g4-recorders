@@ -27,14 +27,6 @@ namespace G4.Recorders.Common.Domain.Models
         public string MachineName { get; set; } = Environment.MachineName;
 
         /// <summary>
-        /// Gets or sets the pointer offset from the target element's top-left corner.
-        /// </summary>
-        /// <remarks>
-        /// The value remains zero on each axis when the producer does not calculate relative geometry.
-        /// </remarks>
-        public RecorderOffsetModel Offset { get; set; } = new();
-
-        /// <summary>
         /// Gets or sets the timestamp (in Unix epoch milliseconds) when the event occurred.
         /// </summary>
         public long Timestamp { get; set; }

@@ -1,7 +1,7 @@
 {
 	"name": "g4.ResolveGroundedElement",
 	"title": "Ground A Coordinate Against The UIA Tree",
-	"description": "Physically moves the cursor to the given coordinates, peeks the UI Automation element found there, and - unless skipOffset is set - resolves the pointer's pixel offset from that element's top-left corner.",
+	"description": "Physically moves the cursor to the given coordinates, resolves the UI Automation element at the settled cursor position, and - unless skipOffset is set - resolves the pointer's pixel offset from that element's top-left corner.",
 	"inputSchema": {
 		"type": "object",
 		"properties": {

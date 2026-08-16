@@ -1,4 +1,3 @@
-using G4.Recorders.Common.Domain.Models;
 using G4.Recorders.Common.Domain.Models.Mcp;
 
 using System;
@@ -8,17 +7,11 @@ using System.Text.Json;
 namespace G4.Recorders.Uia.Domain
 {
     /// <summary>
-    /// Dispatches MCP JSON-RPC requests for the recorder's fixed 5-tool catalog, calling straight into the same
+    /// Dispatches MCP JSON-RPC requests for the recorder's fixed 4-tool catalog, calling straight into the same
     /// <see cref="IUiaRecorderRepository"/> the REST controller uses, so MCP and REST can never diverge.
     /// </summary>
     /// <param name="repository">The repository both this MCP dispatcher and the REST controller call into.</param>
-    /// <param name="cursorPositionProvider">
-    /// Samples the current physical cursor position for a bare <c>g4.Peek</c> call (no coordinates, not
-    /// focused), matching the REST controller's own bare-Peek fallback exactly.
-    /// </param>
-    public class RecorderMcpRepository(
-        IUiaRecorderRepository repository,
-        IUiaCursorPositionProvider cursorPositionProvider) : IRecorderMcpRepository
+    public class RecorderMcpRepository(IUiaRecorderRepository repository) : IRecorderMcpRepository
     {
         #region *** Constants    ***
         // The MCP protocol version this recorder implements.
@@ -26,14 +19,14 @@ namespace G4.Recorders.Uia.Domain
 
         // The recorder's identity, reported by initialize. Fixed rather than derived from the assembly, since
         // MCP clients only use this for display, not for capability negotiation.
-        private const string ServerName = "g4-recorder-uia-mcp";
+        private const string ServerName = "g4-recorders-uia-mcp";
         private const string ServerVersion = "1.0.0";
         #endregion
 
         #region *** Fields       ***
         // Loads the fixed tool catalog once from embedded JSON resources, matching ToolsRepository's own
         // static-field caching convention in G4.Services - this catalog never changes at runtime.
-        private static readonly IReadOnlyDictionary<string, McpToolDefinitionModel> s_tools = LoadTools();
+        private static readonly Dictionary<string, McpToolDefinitionModel> Tools = LoadTools();
         #endregion
 
         #region *** Methods      ***
@@ -52,14 +45,14 @@ namespace G4.Recorders.Uia.Domain
 
             // Report an unknown tool name as a structured JSON-RPC error rather than throwing, so the caller
             // receives a normal response instead of an unhandled exception.
-            if (string.IsNullOrWhiteSpace(toolName) || !s_tools.ContainsKey(toolName))
+            if (string.IsNullOrWhiteSpace(toolName) || !Tools.ContainsKey(toolName))
             {
                 return NewErrorResponse(id, code: -32601, message: $"Tool '{toolName}' not found.");
             }
 
             // Dispatch to the matching repository method and wrap the result in the dual content/
             // structuredContent shape MCP clients expect.
-            var result = InvokeTool(repository, cursorPositionProvider, toolName, arguments);
+            var result = InvokeTool(repository, toolName, arguments);
 
             return new McpResponseModel
             {
@@ -81,7 +74,7 @@ namespace G4.Recorders.Uia.Domain
             return new McpResponseModel
             {
                 Id = id,
-                Result = new McpToolsListResultModel { Tools = s_tools.Values }
+                Result = new McpToolsListResultModel { Tools = Tools.Values }
             };
         }
 
@@ -141,7 +134,6 @@ namespace G4.Recorders.Uia.Domain
         // transport.
         private static object InvokeTool(
             IUiaRecorderRepository repository,
-            IUiaCursorPositionProvider cursorPositionProvider,
             string toolName,
             JsonElement arguments)
         {
@@ -152,8 +144,6 @@ namespace G4.Recorders.Uia.Domain
                 "g4.MovePointer" => repository.MovePointer(
                     GetInt32OrThrow(arguments, "x", toolName),
                     GetInt32OrThrow(arguments, "y", toolName)),
-
-                "g4.Peek" => DispatchPeek(repository, cursorPositionProvider, arguments),
 
                 "g4.ResolveGroundedElement" => repository.ResolveGroundedElement(
                     GetInt32OrThrow(arguments, "x", toolName),
@@ -166,43 +156,12 @@ namespace G4.Recorders.Uia.Domain
 
                 _ => throw new InvalidOperationException($"Tool '{toolName}' has no dispatch handler.")
             };
-
-            // Resolves Peek's coordinate/focus/current-pointer precedence identically to the REST controller's
-            // own Peek action, reusing the same shared resolver so both transports agree on the fallback order.
-            static object DispatchPeek(
-                IUiaRecorderRepository repository,
-                IUiaCursorPositionProvider cursorPositionProvider,
-                JsonElement arguments)
-            {
-                var x = TryGetInt32(arguments, "x", out var xValue) ? xValue : (int?)null;
-                var y = TryGetInt32(arguments, "y", out var yValue) ? yValue : (int?)null;
-                var focused = GetBooleanOrDefault(arguments, "focused");
-
-                var request = RecorderPeekRequestResolver.Resolve(x, y, focused);
-
-                if (request.Mode == RecorderPeekMode.Coordinates)
-                {
-                    return repository.GetElementChain(request.X, request.Y);
-                }
-
-                if (request.Mode == RecorderPeekMode.Focused)
-                {
-                    return repository.GetElementChain();
-                }
-
-                if (!cursorPositionProvider.GetCurrent(out var point))
-                {
-                    throw new InvalidOperationException("The current physical cursor position is unavailable.");
-                }
-
-                return repository.GetElementChain(point.XPos, point.YPos);
-            }
         }
 
         // Loads the fixed tool catalog from this assembly's embedded JSON resources exactly once. Clones each
         // inputSchema element because the source JsonDocument is disposed at the end of this method, and an
         // un-cloned JsonElement would become invalid once its owning document is gone.
-        private static IReadOnlyDictionary<string, McpToolDefinitionModel> LoadTools()
+        private static Dictionary<string, McpToolDefinitionModel> LoadTools()
         {
             var assembly = typeof(RecorderMcpRepository).Assembly;
             var tools = new Dictionary<string, McpToolDefinitionModel>(StringComparer.Ordinal);

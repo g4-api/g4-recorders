@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace G4.Recorders.Common.Domain.Models.Mcp
 {
     /// <summary>
@@ -18,6 +20,7 @@ namespace G4.Recorders.Common.Domain.Models.Mcp
         /// <summary>
         /// Gets or sets the JSON-RPC protocol version. Defaults to <c>2.0</c>.
         /// </summary>
+        [JsonPropertyName(name: "jsonrpc")]
         public string JsonRpc { get; set; } = "2.0";
 
         /// <summary>

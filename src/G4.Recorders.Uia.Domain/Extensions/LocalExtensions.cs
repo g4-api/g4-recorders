@@ -28,6 +28,21 @@ namespace G4.Recorders.Uia.Domain.Extensions
         // "Name", "AutomationId", "ValueValue", "AnnotationDateTime") to its property id. This is the same resolvable
         // set the DriverServer XpathParser exposes, so a locator this recorder generates round-trips back through it.
         private static readonly Dictionary<string, int> s_propertyIds = BuildPropertyIds();
+
+        // Property ids already surfaced as typed fields on the node model. They are excluded from the Properties bag
+        // so the full-property dump does not duplicate Name, AutomationId, ClassName, ControlType, FrameworkId,
+        // ProcessId, RuntimeId, and BoundingRectangle.
+        private static readonly HashSet<int> s_excludedPropertyIds =
+        [
+            UIA_PropertyIds.UIA_RuntimeIdPropertyId,
+            UIA_PropertyIds.UIA_BoundingRectanglePropertyId,
+            UIA_PropertyIds.UIA_ProcessIdPropertyId,
+            UIA_PropertyIds.UIA_ControlTypePropertyId,
+            UIA_PropertyIds.UIA_NamePropertyId,
+            UIA_PropertyIds.UIA_AutomationIdPropertyId,
+            UIA_PropertyIds.UIA_ClassNamePropertyId,
+            UIA_PropertyIds.UIA_FrameworkIdPropertyId
+        ];
         #endregion
 
         #region *** Methods      ***
@@ -425,6 +440,52 @@ namespace G4.Recorders.Uia.Domain.Extensions
             return builder.ToString();
         }
 
+        // Builds the full property bag for a target element: every resolvable UIA property that is supported and holds
+        // a serializable value, excluding the ids already exposed as typed node fields. Returns null when empty so a
+        // node without extra properties keeps a lean response.
+        private static Dictionary<string, object> BuildPropertyBag(IUIAutomationElement element)
+        {
+            var bag = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var pair in s_propertyIds)
+            {
+                // Skip the properties already surfaced as typed node fields to avoid duplicating them here.
+                if (s_excludedPropertyIds.Contains(pair.Value))
+                {
+                    continue;
+                }
+
+                // Read with ignoreDefaultValue so an unsupported property returns the reserved not-supported sentinel
+                // (a COM object the value filter rejects) instead of a misleading default such as 0 or false.
+                var raw = Safe(() => element.GetCurrentPropertyValueEx(pair.Value, 1));
+
+                if (TryConvertPropertyValue(raw, out var value))
+                {
+                    bag[pair.Key] = value;
+                }
+            }
+
+            return bag.Count > 0 ? bag : null;
+        }
+
+        // Accepts a raw UIA property value only when it is a serializable scalar or non-blank string, rejecting nulls,
+        // blanks, arrays, COM objects, and the reserved not-supported sentinel so the property bag stays JSON-clean.
+        internal static bool TryConvertPropertyValue(object raw, out object value)
+        {
+            switch (raw)
+            {
+                case string text when !string.IsNullOrWhiteSpace(text):
+                    value = text;
+                    return true;
+                case bool or sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal:
+                    value = raw;
+                    return true;
+                default:
+                    value = null;
+                    return false;
+            }
+        }
+
         // Converts a raw UIA property value into a locator-usable string, or null when it cannot serve as an identifier.
         // Strings pass through (blanks become null); scalar values are formatted invariantly; arrays, the UIA
         // not-supported sentinel, and other complex values resolve to null.
@@ -440,8 +501,8 @@ namespace G4.Recorders.Uia.Domain.Extensions
             };
         }
 
-        // TODO: Export all properties that can be safely retrieved from the element, such as IsContentElement, IsControlElement, IsEnabled, etc.
-        // Converts an IUIAutomationElement into a UiaNodeModel representation.
+        // Converts an IUIAutomationElement into a UiaNodeModel representation. The full-detail path also dumps every
+        // supported, serializable UIA property into Properties; the metadata-only path (ancestors) stays lean.
         private static UiaNodeModel Convert(IUIAutomationElement element, bool metadata)
         {
             // Extract common properties from the UIA element
@@ -517,6 +578,7 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 Name = string.IsNullOrWhiteSpace(name) ? null : name,
                 Patterns = [.. patterns],
                 ProcessId = pid,
+                Properties = BuildPropertyBag(element),
                 RuntimeId = runtimeId.Length > 0 ? runtimeId : null
             };
         }

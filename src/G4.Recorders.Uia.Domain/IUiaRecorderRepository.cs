@@ -26,15 +26,18 @@ namespace G4.Recorders.Uia.Domain
         UiaChainModel GetElementChain(int x, int y);
 
         /// <summary>
-        /// Physically moves the cursor to the given coordinates, peeks the UI Automation element found there, and
-        /// - unless suppressed - resolves the pointer's pixel offset from that element's top-left corner.
+        /// Physically moves the cursor to the given coordinates, resolves the UI Automation element at the settled
+        /// cursor position, and - unless suppressed - resolves the pointer's pixel offset from that element.
         /// </summary>
         /// <param name="x">The horizontal physical screen coordinate to ground against.</param>
         /// <param name="y">The vertical physical screen coordinate to ground against.</param>
         /// <param name="skipOffset">
         /// When <c>true</c>, skips the offset computation and leaves the returned chain's offset null.
         /// </param>
-        /// <returns>The resolved ancestor chain, with its offset populated unless <paramref name="skipOffset"/> is set.</returns>
+        /// <returns>
+        /// The ancestor chain resolved at the settled cursor position, with its offset populated unless
+        /// <paramref name="skipOffset"/> is set.
+        /// </returns>
         UiaChainModel ResolveGroundedElement(int x, int y, bool skipOffset);
         #endregion
     }

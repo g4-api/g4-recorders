@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 namespace G4.Recorders.Chromium.Controllers
 {
     [ApiController]
-    [Route("/api/v4/g4/[controller]")]
+    [Route("/api/v4/g4/recorders/chromium/[controller]")]
     [SwaggerTag(description: "Utilities for resolving Chromium DOM elements through the connected recorder extension.")]
     public class RecorderController(
         IChromiumRecorderRepository repository,

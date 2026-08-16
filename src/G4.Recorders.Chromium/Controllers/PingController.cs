@@ -11,7 +11,7 @@ using System.Net.Mime;
 namespace G4.Recorders.Chromium.Controllers
 {
     [ApiController]
-    [Route("/api/v4/g4/[controller]")]
+    [Route("/api/v4/g4/recorders/chromium/[controller]")]
     [SwaggerTag(description: "This controller provides a simple health check endpoint to ensure the service is running and responsive.")]
     public class PingController : ControllerBase
     {

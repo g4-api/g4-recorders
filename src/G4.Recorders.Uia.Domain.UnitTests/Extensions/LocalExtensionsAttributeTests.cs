@@ -70,5 +70,32 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Extensions
             Assert.IsFalse(LocalExtensions.TryResolvePropertyId(string.Empty, out _));
             Assert.IsFalse(LocalExtensions.TryResolvePropertyId(null, out _));
         }
+
+        [TestMethod(DisplayName = "Verify that serializable scalar and string property values are accepted.")]
+        public void PropertyValueFilterAcceptsSerializableValuesTest()
+        {
+            // Act + Assert: non-blank strings and scalar values are kept as-is for the property bag.
+            Assert.IsTrue(LocalExtensions.TryConvertPropertyValue("Submit", out var text));
+            Assert.AreEqual("Submit", text);
+
+            Assert.IsTrue(LocalExtensions.TryConvertPropertyValue(true, out var flag));
+            Assert.AreEqual(true, flag);
+
+            Assert.IsTrue(LocalExtensions.TryConvertPropertyValue(42, out var number));
+            Assert.AreEqual(42, number);
+
+            Assert.IsTrue(LocalExtensions.TryConvertPropertyValue(3.5d, out var real));
+            Assert.AreEqual(3.5d, real);
+        }
+
+        [TestMethod(DisplayName = "Verify that null, blank, array, and complex property values are rejected.")]
+        public void PropertyValueFilterRejectsUnusableValuesTest()
+        {
+            // Act + Assert: values that cannot serve as a clean JSON scalar are dropped from the property bag.
+            Assert.IsFalse(LocalExtensions.TryConvertPropertyValue(null, out _));
+            Assert.IsFalse(LocalExtensions.TryConvertPropertyValue("   ", out _));
+            Assert.IsFalse(LocalExtensions.TryConvertPropertyValue(new[] { 1, 2, 3 }, out _));
+            Assert.IsFalse(LocalExtensions.TryConvertPropertyValue(new object(), out _));
+        }
     }
 }
