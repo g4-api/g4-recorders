@@ -25,7 +25,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
     /// </summary>
     public sealed class UiaEventCaptureService : BackgroundService
     {
-        #region *** User32    ***
+        #region *** User32       ***
         // Passes the hook information to the next hook procedure in the current hook chain.
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
@@ -91,7 +91,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         private static extern bool UnhookWindowsHookEx(IntPtr hhk);
         #endregion
 
-        #region *** Constants ***
+        #region *** Constants    ***
         private const int HoverBoundsTolerancePixels = 2;
         private const int HoverMaximumAgeMilliseconds = 1000;
         private const int HoverMinimumResolutionIntervalMilliseconds = 50;
@@ -138,7 +138,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         private const int VK_SHIFT = 0x10;         // Shift virtual key (generic)
         #endregion
 
-        #region *** Delegates ***
+        #region *** Delegates    ***
         /// <summary>
         /// Defines the signature for hook procedures used with <see cref="SetWindowsHookEx"/>.  
         /// This delegate is invoked for low-level keyboard and mouse events captured globally,  
@@ -151,7 +151,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         private delegate IntPtr HookProcess(int nCode, IntPtr wParam, IntPtr lParam);
         #endregion
 
-        #region *** Fields    ***
+        #region *** Fields       ***
         // Shared hub state prevents hover resolution when no recorder client can consume events.
         private readonly RecorderConnectionState _connectionState = RecorderConnectionState.Instance;
 
@@ -220,6 +220,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         private readonly AutoResetEvent _signal = new(initialState: false);
         #endregion
 
+        #region *** Constructors ***
         /// <summary>
         /// Initializes a new instance of the <see cref="UiaEventCaptureService"/> class
         /// and starts the background listener responsible for processing captured UI events.
@@ -247,7 +248,9 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             // and processes them asynchronously as they are enqueued.
             StartEventsListener(tokenSource);
         }
+        #endregion
 
+        #region *** Methods      ***
         /// <inheritdoc />
         protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -346,7 +349,6 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             scheduler: TaskScheduler.Default);
         }
 
-        #region *** Methods   ***
         // Low-level Windows keyboard hook callback.
         // Captures keyboard events (key down and key up), resolves the key text,
         // and broadcasts the event through SignalR to connected clients.

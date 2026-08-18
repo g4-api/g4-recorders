@@ -230,14 +230,8 @@ namespace G4.Recorders.Uia.Domain.Extensions
             return GetCanonicalLocator(chain, attribute1, attribute2);
         }
 
-        /// <summary>
         /// Builds the canonical locator for a UIA element by preserving every resolvable ancestor and
         /// positioning any repeated selector relative to the siblings that match that exact selector.
-        /// </summary>
-        /// <param name="chain">The UIA chain model to format.</param>
-        /// <param name="attribute1">The primary identity attribute name used for the highest-priority predicate.</param>
-        /// <param name="attribute2">The secondary identity attribute name used for the lower-priority predicate.</param>
-        /// <returns>A canonical locator beginning at the desktop element.</returns>
         private static string GetCanonicalLocator(UiaChainModel chain, string attribute1, string attribute2)
         {
             var nodes = chain?.Path ?? [];
