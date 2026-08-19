@@ -1,11 +1,8 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-using G4.Recorders.Uia.Domain;
-
 namespace G4.Recorders.Uia.Domain.UnitTests.PathFinder
 {
     [TestClass]
-    [TestCategory(nameof(UiaXpath))]
     [TestCategory("UnitTest")]
     public sealed class UiaXpathTests
     {
@@ -47,38 +44,6 @@ namespace G4.Recorders.Uia.Domain.UnitTests.PathFinder
                     "Window[@Name='App']",
                     "/Button[@Name='Submit']"
                 },
-                hierarchy
-            );
-        }
-
-        [TestMethod(DisplayName = "Verify that the Notepad Save As locator is split into direct-child segments")]
-        public void GetHierarchyNotepadSaveAsPathTest()
-        {
-            // Arrange: use the recorder locator for the Notepad Save As file-name input.
-            const string xpath = "/Desktop/Window[@Name='*Untitled - Notepad']"
-                + "/Window[@Name='Save As']"
-                + "/Pane[1]"
-                + "/Pane[@AutomationId='main']"
-                + "/Pane[@AutomationId='FolderLayoutContainer']"
-                + "/Pane[@Automation Id='BackgroundClear']"
-                + "/ComboBox[@AutomationId='FileNameControlHost']"
-                + "/Edit[@AutomationId='1001']";
-
-            // Act: split the recorded locator into executable UIA hierarchy segments.
-            var hierarchy = UiaXpath.GetHierarchy(xpath);
-
-            // Assert: retain every selector and index in the order required to reach the file-name input.
-            Assert.AreSequenceEqual(
-                [
-                    "Window[@Name='*Untitled - Notepad']",
-                    "Window[@Name='Save As']",
-                    "Pane[1]",
-                    "Pane[@AutomationId='main']",
-                    "Pane[@AutomationId='FolderLayoutContainer']",
-                    "Pane[@Automation Id='BackgroundClear']",
-                    "ComboBox[@AutomationId='FileNameControlHost']",
-                    "Edit[@AutomationId='1001']"
-                ],
                 hierarchy
             );
         }

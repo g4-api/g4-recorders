@@ -96,8 +96,9 @@ namespace G4.Recorders.Uia.Domain.Extensions
             // Collects ancestor nodes (including the starting element).
             var nodes = new List<UiaNodeModel>();
 
-            // Tree walker used to navigate the UI Automation hierarchy.
-            var walker = automation.RawViewWalker;
+            // Tree walker over the control view so the chain mirrors what Accessibility Insights shows and what the
+            // driver's UIA FindFirst can resolve, excluding non-control host wrappers such as native HWNDView panes.
+            var walker = automation.ControlViewWalker;
 
             // The desktop root element (absolute root of the UIA tree).
             var root = automation.GetRootElement();
@@ -251,6 +252,18 @@ namespace G4.Recorders.Uia.Domain.Extensions
                     continue;
                 }
 
+                // A non-control host wrapper (IsControlElement == false, e.g. a native HWNDView pane) is absent from
+                // the control view that inspectors and UIA FindFirst use, so a segment built from it can never resolve.
+                // Skip it like the UWP CoreWindow host and bridge the gap with a descendant ('//') scope so the next
+                // kept element is searched as a descendant rather than a direct child.
+                // TODO: monitor this behaviour — if the last (target, not trigger) node is itself non-control it will be
+                // dropped here, leaving the locator pointing at its parent. Revisit if that case is observed in practice.
+                if (!node.IsControlElement)
+                {
+                    isGap = true;
+                    continue;
+                }
+
                 var separator = isGap ? "//" : "/";
                 var segment = GetCanonicalSegment(node, attribute1, attribute2);
 
@@ -267,19 +280,19 @@ namespace G4.Recorders.Uia.Domain.Extensions
         internal static string GetCanonicalSegment(UiaNodeModel node, string attribute1, string attribute2)
         {
             var controlType = node.ControlType ?? "*";
-            var value1 = node.Attribute1Value;
-            var value2 = node.Attribute2Value;
-            var hasAttribute1 = !string.IsNullOrEmpty(value1) && !TestBrokenIdentifier(value1);
-            var hasAttribute2 = !string.IsNullOrEmpty(value2) && !TestBrokenIdentifier(value2);
+            var attribute1Value = node.Attribute1Value;
+            var attribute2Value = node.Attribute2Value;
+            var isAttribute1 = !string.IsNullOrEmpty(attribute1Value) && !TestBrokenIdentifier(attribute1Value);
+            var isAttribute2 = !string.IsNullOrEmpty(attribute2Value) && !TestBrokenIdentifier(attribute2Value);
 
-            if (hasAttribute1 && node.Attribute1MatchCount == 1)
+            if (isAttribute1 && node.Attribute1MatchCount == 1)
             {
-                return $"{controlType}[@{attribute1}='{value1}']";
+                return $"{controlType}[@{attribute1}='{attribute1Value}']";
             }
 
-            if (hasAttribute1 && hasAttribute2 && node.IdentityMatchCount > 0)
+            if (isAttribute1 && isAttribute2 && node.IdentityMatchCount > 0)
             {
-                var selector = $"{controlType}[@{attribute1}='{value1}' and @{attribute2}='{value2}']";
+                var selector = $"{controlType}[@{attribute1}='{attribute1Value}' and @{attribute2}='{attribute2Value}']";
 
                 return AppendPosition(
                     selector: selector,
@@ -288,14 +301,14 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 );
             }
 
-            if (hasAttribute2 && node.Attribute2MatchCount == 1)
+            if (isAttribute2 && node.Attribute2MatchCount == 1)
             {
-                return $"{controlType}[@{attribute2}='{value2}']";
+                return $"{controlType}[@{attribute2}='{attribute2Value}']";
             }
 
-            if (hasAttribute1 && node.Attribute1MatchCount > 0)
+            if (isAttribute1 && node.Attribute1MatchCount > 0)
             {
-                var selector = $"{controlType}[@{attribute1}='{value1}']";
+                var selector = $"{controlType}[@{attribute1}='{attribute1Value}']";
 
                 return AppendPosition(
                     selector: selector,
@@ -304,9 +317,9 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 );
             }
 
-            if (hasAttribute2 && node.Attribute2MatchCount > 0)
+            if (isAttribute2 && node.Attribute2MatchCount > 0)
             {
-                var selector = $"{controlType}[@{attribute2}='{value2}']";
+                var selector = $"{controlType}[@{attribute2}='{attribute2Value}']";
 
                 return AppendPosition(
                     selector: selector,
@@ -506,6 +519,10 @@ namespace G4.Recorders.Uia.Domain.Extensions
             var name = Safe(() => element.CurrentName);
             var pid = Safe(() => element.CurrentProcessId);
 
+            // Read control-view membership so locator building can skip non-control host wrappers. A COM failure
+            // defaults to true so a transient read error never drops an otherwise valid node.
+            var isControlElement = Safe(() => element.CurrentIsControlElement, fallback: 1) == 1;
+
             // Resolve the control type name using the cache, defaulting to "*"
             var controlType = Cache.ControlTypeNames.GetValueOrDefault(
                 key: controlTypeId,
@@ -521,6 +538,7 @@ namespace G4.Recorders.Uia.Domain.Extensions
                     ClassName = string.IsNullOrWhiteSpace(className) ? null : className,
                     ControlType = string.IsNullOrWhiteSpace(controlType) ? null : controlType,
                     ControlTypeId = controlTypeId,
+                    IsControlElement = isControlElement,
                     Name = string.IsNullOrWhiteSpace(name) ? null : name,
                     ProcessId = pid
                 };
@@ -568,6 +586,7 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 ControlTypeId = controlTypeId,
                 Element = element,
                 FrameworkId = Safe(() => element.CurrentFrameworkId),
+                IsControlElement = isControlElement,
                 Machine = machine,
                 Name = string.IsNullOrWhiteSpace(name) ? null : name,
                 Patterns = [.. patterns],

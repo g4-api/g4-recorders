@@ -19,6 +19,12 @@ namespace G4.Recorders.Uia.Domain.Models
         #region *** Properties   ***
 
         /// <summary>
+        /// Gets or sets whether this element is part of the UIA control view (IsControlElement).
+        /// Non-control host wrappers are absent from the control view used by inspectors and UIA FindFirst.
+        /// </summary>
+        public bool IsControlElement { get; set; } = true;
+
+        /// <summary>
         /// Gets or sets the 1-based index of this element among all UIA siblings under the same parent.
         /// </summary>
         public int SiblingIndex { get; set; } = 1;
