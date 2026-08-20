@@ -118,7 +118,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 }
 
                 // Preserve legacy focused-element behavior when recording begins after Key Down.
-                var fallbackChain = _repository.Peek();
+                var fallbackChain = _repository.GetElementChain();
 
                 return new KeyboardTargetResolution(
                     fallbackChain,

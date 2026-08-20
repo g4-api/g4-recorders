@@ -14,23 +14,22 @@ namespace G4.Recorders.Uia.Domain
     internal static class UiaXpath
     {
         #region *** Constants    ***
-
         // Recognizes the optional recorder root so hierarchy traversal does not emit Desktop as an executable step.
         private static readonly Regex DesktopPrefixExpression = new(
             pattern: @"^(?:\(+)?/(?:root|desktop)(?=/|$)",
-            options: RegexOptions.IgnoreCase
+            options: RegexOptions.IgnoreCase,
+            matchTimeout: TimeSpan.FromSeconds(30)
         );
 
         // Captures only a terminal numeric predicate so digits inside property values remain part of the condition.
         private static readonly Regex PositionExpression = new(
             pattern: @"\[(?<position>\d+)\]\s*$",
-            options: RegexOptions.CultureInvariant
+            options: RegexOptions.CultureInvariant,
+            matchTimeout: TimeSpan.FromSeconds(30)
         );
-
         #endregion
 
         #region *** Methods      ***
-
         /// <summary>
         /// Splits a locator into UIA hierarchy segments.
         /// </summary>
@@ -204,7 +203,6 @@ namespace G4.Recorders.Uia.Domain
             // Report both cursor advancement and scope intent without exposing mutable parsing state.
             return (Index: index, IsDescendant: separatorLength > 1);
         }
-
         #endregion
 
         #region *** Nested Types ***

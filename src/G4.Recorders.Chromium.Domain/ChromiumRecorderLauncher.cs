@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.SignalR;
 
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -32,7 +33,7 @@ namespace G4.Recorders.Chromium.Domain
     {
         #region *** Constants ***
         // Folder name (under the app base directory) that holds the recorder extension.
-        private const string ExtensionFolderName = "ChromiumPeek.Extension";
+        private const string ExtensionFolderName = "G4.Recorders.Chromium.Extension";
 
         // Prefix for the per-launch Chromium user-data directory created under the temp folder.
         private const string UserDataDirectoryPrefix = "chromium-peek-";
@@ -42,6 +43,9 @@ namespace G4.Recorders.Chromium.Domain
         #endregion
 
         #region *** Fields    ***
+        // Caches characters that require Windows command-line quoting across every browser launch.
+        private static readonly SearchValues<char> ArgumentQuotingCharacters = SearchValues.Create([' ', '\t', '\n', '\v', '"']);
+
         // Registry of processes started by this launcher, keyed by process id. Only ids in
         // this map may be stopped, so an arbitrary/unknown process id can never be killed.
         private readonly ConcurrentDictionary<int, Process> _startedProcesses = new();
@@ -70,15 +74,17 @@ namespace G4.Recorders.Chromium.Domain
                     $"Recorder extension folder not found: {extensionDirectory}");
             }
 
-            // Resolve the browser binary from the client capabilities; it is required.
-            var chromeOptions = driverParameters?.Capabilities?.AlwaysMatch?.ChromeOptions;
-            var browserPath = chromeOptions?.Binary;
+            // Normalize omitted Chromium options so remote HTTP callers can rely on recorder-side sandbox discovery.
+            var chromeOptions = driverParameters?.Capabilities?.AlwaysMatch?.ChromeOptions ?? new ChromeOptionsModel();
 
-            if (string.IsNullOrWhiteSpace(browserPath) || !File.Exists(browserPath))
+            // Resolve an explicit recorder-host path first, then the recorder's own standard sandbox browser path.
+            var browserPath = ResolveBrowserPath(chromeOptions.Binary);
+
+            if (string.IsNullOrWhiteSpace(browserPath))
             {
-                throw new FileNotFoundException(
-                    "Browser binary not found. Provide capabilities.alwaysMatch.'goog:chromeOptions'.binary. " +
-                    $"Value: '{browserPath}'.");
+                var message = "Browser binary not found on the recorder host. Provide " +
+                    "capabilities.alwaysMatch.'goog:chromeOptions'.binary or install Chrome under the G4 sandbox.";
+                throw new FileNotFoundException(message);
             }
 
             // Build the process with the peek base flags, then append the client arguments.
@@ -140,10 +146,9 @@ namespace G4.Recorders.Chromium.Domain
                 startInfo.ArgumentList.Add(bootstrapUrl);
             }
 
-            // Launch the browser without activating its window, so it appears on-screen but does not
-            // steal foreground focus from the caller (for example the VS Code editor that started the
-            // recording). The window show-state is carried through STARTUPINFO to CreateProcess.
-            var startedProcessId = StartProcessNoActivate(startInfo.FileName, startInfo.ArgumentList);
+            // Launch through the host-specific primitive: Windows preserves foreground focus, while Linux uses
+            // Process.Start because the Win32 no-activate contract has no Linux equivalent.
+            var startedProcessId = StartBrowserProcess(startInfo);
 
             // Register the launched process so it can be stopped later. Liveness is intentionally
             // checked at stop time rather than through Process.Exited: Chromium's launched process can
@@ -297,6 +302,56 @@ namespace G4.Recorders.Chromium.Domain
             }
         }
 
+        // Resolves Chrome on the recorder machine so remote clients never inspect or depend on their own filesystem.
+        // An explicit missing binary remains an error; omission activates the standard sandbox lookup.
+        private static string ResolveBrowserPath(string requestedBrowserPath)
+        {
+            // Honor an explicit recorder-host path only when it names an existing file.
+            if (!string.IsNullOrWhiteSpace(requestedBrowserPath))
+            {
+                return File.Exists(requestedBrowserPath) ? requestedBrowserPath : null;
+            }
+
+            // Prefer the recorder process's sandbox marker when its host configured one.
+            var sandboxPath = Environment.GetEnvironmentVariable("G4_SANDBOX");
+
+            if (string.IsNullOrWhiteSpace(sandboxPath))
+            {
+                // Derive the sandbox from bot-utilities/chromium-recorder-x64 when no process marker is available.
+                sandboxPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", ".."));
+            }
+
+            var executableName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "chrome.exe" : "chrome";
+            var sandboxBrowserPath = Path.Combine(sandboxPath, "browsers", "chrome", executableName);
+
+            return File.Exists(sandboxBrowserPath) ? sandboxBrowserPath : null;
+        }
+
+        // Starts the browser through the recorder host's native process API and returns the tracked process id.
+        // Windows keeps its no-activate behavior; Linux launches without calling any Win32 interop entry point.
+        private static int StartBrowserProcess(ProcessStartInfo startInfo)
+        {
+            // Keep the established Windows focus-preserving launch path unchanged.
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                return StartProcessNoActivate(startInfo.FileName, startInfo.ArgumentList);
+            }
+
+            // Launch on Linux with the already-tokenized ArgumentList so caller values are never reparsed as shell text.
+            var process = Process.Start(startInfo);
+
+            if (process is null)
+            {
+                var message = $"Failed to start browser process '{startInfo.FileName}' on the recorder host.";
+                throw new InvalidOperationException(message);
+            }
+
+            var processId = process.Id;
+            process.Dispose();
+
+            return processId;
+        }
+
         // Launches a process with its window shown but not activated (SW_SHOWNOACTIVATE), so the new
         // window is visible on-screen without stealing foreground focus from the caller. Returns the
         // new process id.
@@ -358,7 +413,7 @@ namespace G4.Recorders.Chromium.Domain
         private static void AppendArgument(StringBuilder builder, string argument)
         {
             // Arguments without whitespace or quotes need no quoting.
-            if (argument.Length > 0 && argument.IndexOfAny(new char[] { ' ', '\t', '\n', '\v', '"' }) < 0)
+            if (argument.Length > 0 && argument.AsSpan().IndexOfAny(ArgumentQuotingCharacters) < 0)
             {
                 builder.Append(argument);
                 return;

@@ -2,7 +2,9 @@ using G4.Recorders.Common.Domain.Extensions;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -17,8 +19,33 @@ namespace G4.Recorders.Uia.Domain.Extensions
     /// </summary>
     internal static class LocalExtensions
     {
-        #region *** Methods     ***
+        #region *** Fields       ***
+        // The ordered identity attributes used when a caller does not supply an explicit collection. The order
+        // matches the appsettings G4:Uia:IdentityAttributes seed, so the primary attribute is Name.
+        private static readonly string[] s_defaultIdentityAttributes = ["Name", "AutomationId"];
 
+        // Maps every UIA property name (the field name stripped of its UIA_ prefix and PropertyId suffix, for example
+        // "Name", "AutomationId", "ValueValue", "AnnotationDateTime") to its property id. This is the same resolvable
+        // set the DriverServer XpathParser exposes, so a locator this recorder generates round-trips back through it.
+        private static readonly Dictionary<string, int> s_propertyIds = BuildPropertyIds();
+
+        // Property ids already surfaced as typed fields on the node model. They are excluded from the Properties bag
+        // so the full-property dump does not duplicate Name, AutomationId, ClassName, ControlType, FrameworkId,
+        // ProcessId, RuntimeId, and BoundingRectangle.
+        private static readonly HashSet<int> s_excludedPropertyIds =
+        [
+            UIA_PropertyIds.UIA_RuntimeIdPropertyId,
+            UIA_PropertyIds.UIA_BoundingRectanglePropertyId,
+            UIA_PropertyIds.UIA_ProcessIdPropertyId,
+            UIA_PropertyIds.UIA_ControlTypePropertyId,
+            UIA_PropertyIds.UIA_NamePropertyId,
+            UIA_PropertyIds.UIA_AutomationIdPropertyId,
+            UIA_PropertyIds.UIA_ClassNamePropertyId,
+            UIA_PropertyIds.UIA_FrameworkIdPropertyId
+        ];
+        #endregion
+
+        #region *** Methods      ***
         /// <summary>
         /// Converts an <see cref="IUIAutomationElement"/> into a <see cref="UiaNodeModel"/> representation.
         /// </summary>
@@ -30,13 +57,36 @@ namespace G4.Recorders.Uia.Domain.Extensions
         }
 
         /// <summary>
-        /// Builds a structured ancestor chain for a given UI Automation element.
+        /// Builds a structured ancestor chain for a given UI Automation element using the default identity attributes.
         /// </summary>
         /// <param name="automation">The <see cref="CUIAutomation8"/> automation instance used for traversal.</param>
         /// <param name="element">The starting <see cref="IUIAutomationElement"/> from which to build the chain.</param>
         /// <returns>A <see cref="UiaChainModel"/> containing the ancestor path and the top-level window, or <c>null</c> if <paramref name="element"/> is <c>null</c>.</returns>
+        /// <remarks>Delegates to the attribute-aware overload with <c>Name</c> and <c>AutomationId</c> as the ordered identity attributes.</remarks>
         public static UiaChainModel NewAncestorChain(this CUIAutomation8 automation, IUIAutomationElement element)
         {
+            return NewAncestorChain(automation, element, attributes: s_defaultIdentityAttributes);
+        }
+
+        /// <summary>
+        /// Builds a structured ancestor chain for a given UI Automation element using a caller-supplied identity attribute order.
+        /// </summary>
+        /// <param name="automation">The <see cref="CUIAutomation8"/> automation instance used for traversal.</param>
+        /// <param name="element">The starting <see cref="IUIAutomationElement"/> from which to build the chain.</param>
+        /// <param name="attributes">The ordered identity attributes; the first entry is primary and the second is secondary. Missing entries fall back to the defaults.</param>
+        /// <returns>A <see cref="UiaChainModel"/> containing the ancestor path and the top-level window, or <c>null</c> if <paramref name="element"/> is <c>null</c>.</returns>
+        /// <remarks>
+        /// The two configured attributes drive selector-relative sibling counting exactly as the previous hardcoded
+        /// automation-id and name pair did; only which properties are read changes, never how uniqueness is measured.
+        /// </remarks>
+        public static UiaChainModel NewAncestorChain(
+            this CUIAutomation8 automation,
+            IUIAutomationElement element,
+            IReadOnlyList<string> attributes)
+        {
+            // Resolve the ordered attribute pair once so every node reads and counts the same two properties.
+            var (attribute1, attribute2) = NormalizeAttributes(attributes);
+
             if (element == null)
             {
                 // No element provided — cannot build a chain.
@@ -46,8 +96,9 @@ namespace G4.Recorders.Uia.Domain.Extensions
             // Collects ancestor nodes (including the starting element).
             var nodes = new List<UiaNodeModel>();
 
-            // Tree walker used to navigate the UI Automation hierarchy.
-            var walker = automation.RawViewWalker;
+            // Tree walker over the control view so the chain mirrors what Accessibility Insights shows and what the
+            // driver's UIA FindFirst can resolve, excluding non-control host wrappers such as native HWNDView panes.
+            var walker = automation.ControlViewWalker;
 
             // The desktop root element (absolute root of the UIA tree).
             var root = automation.GetRootElement();
@@ -67,6 +118,11 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 // Convert the current element to a node model and add it to the chain.
                 var node = Convert(current, metadataOnly);
                 nodes.Add(node);
+
+                // Resolve the two configured attribute values from the live element so locator formatting keys off
+                // the same properties that sibling counting measures below, including attributes Convert does not map.
+                node.Attribute1Value = ResolveAttributeValue(current, attribute1);
+                node.Attribute2Value = ResolveAttributeValue(current, attribute2);
 
                 // Mark the first element as the trigger element.
                 if (isFirst)
@@ -89,6 +145,8 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 var siblingDetails = GetSiblingDetails(
                     context: new SiblingContext
                     {
+                        Attribute1 = attribute1,
+                        Attribute2 = attribute2,
                         Automation = automation,
                         Node = node,
                         Parent = parent,
@@ -99,12 +157,12 @@ namespace G4.Recorders.Uia.Domain.Extensions
 
                 // Persist the 1-based ranks so locator generation remains deterministic after the COM traversal
                 // advances to the next ancestor.
-                node.AutomationIdMatchCount = siblingDetails.AutomationIdMatchCount;
-                node.AutomationIdMatchIndex = siblingDetails.AutomationIdMatchIndex;
+                node.Attribute1MatchCount = siblingDetails.Attribute1MatchCount;
+                node.Attribute1MatchIndex = siblingDetails.Attribute1MatchIndex;
+                node.Attribute2MatchCount = siblingDetails.Attribute2MatchCount;
+                node.Attribute2MatchIndex = siblingDetails.Attribute2MatchIndex;
                 node.IdentityMatchCount = siblingDetails.IdentityMatchCount;
                 node.IdentityMatchIndex = siblingDetails.IdentityMatchIndex;
-                node.NameMatchCount = siblingDetails.NameMatchCount;
-                node.NameMatchIndex = siblingDetails.NameMatchIndex;
                 node.SiblingIndex = siblingDetails.AllIndex;
                 node.SiblingIndexOfSameControlType = siblingDetails.SameControlTypeIndex;
 
@@ -146,22 +204,36 @@ namespace G4.Recorders.Uia.Domain.Extensions
         }
 
         /// <summary>
-        /// Builds the canonical UIA XPath-like locator for a <see cref="UiaChainModel"/>.
+        /// Builds the canonical UIA XPath-like locator for a <see cref="UiaChainModel"/> using the default identity attributes.
         /// </summary>
         /// <param name="chain">The chain containing the ordered UIA ancestor nodes.</param>
         /// <returns>A canonical locator string beginning with <c>/Desktop</c>.</returns>
+        /// <remarks>Delegates to the attribute-aware overload with <c>Name</c> and <c>AutomationId</c> as the ordered identity attributes.</remarks>
         public static string ResolveLocator(this UiaChainModel chain)
         {
-            return GetCanonicalLocator(chain);
+            return ResolveLocator(chain, attributes: s_defaultIdentityAttributes);
         }
 
         /// <summary>
+        /// Builds the canonical UIA XPath-like locator for a <see cref="UiaChainModel"/> using a caller-supplied identity attribute order.
+        /// </summary>
+        /// <param name="chain">The chain containing the ordered UIA ancestor nodes.</param>
+        /// <param name="attributes">The ordered identity attributes; the first entry is primary and the second is secondary. Missing entries fall back to the defaults.</param>
+        /// <returns>A canonical locator string beginning with <c>/Desktop</c>.</returns>
+        /// <remarks>
+        /// The attribute order must match the one supplied to <see cref="NewAncestorChain(CUIAutomation8, IUIAutomationElement, IReadOnlyList{string})"/>,
+        /// because the sibling ranks stored on each node are positional to that same pair.
+        /// </remarks>
+        public static string ResolveLocator(this UiaChainModel chain, IReadOnlyList<string> attributes)
+        {
+            var (attribute1, attribute2) = NormalizeAttributes(attributes);
+
+            return GetCanonicalLocator(chain, attribute1, attribute2);
+        }
+
         /// Builds the canonical locator for a UIA element by preserving every resolvable ancestor and
         /// positioning any repeated selector relative to the siblings that match that exact selector.
-        /// </summary>
-        /// <param name="chain">The UIA chain model to format.</param>
-        /// <returns>A canonical locator beginning at the desktop element.</returns>
-        private static string GetCanonicalLocator(UiaChainModel chain)
+        private static string GetCanonicalLocator(UiaChainModel chain, string attribute1, string attribute2)
         {
             var nodes = chain?.Path ?? [];
             var builder = new StringBuilder("/Desktop");
@@ -180,8 +252,20 @@ namespace G4.Recorders.Uia.Domain.Extensions
                     continue;
                 }
 
+                // A non-control host wrapper (IsControlElement == false, e.g. a native HWNDView pane) is absent from
+                // the control view that inspectors and UIA FindFirst use, so a segment built from it can never resolve.
+                // Skip it like the UWP CoreWindow host and bridge the gap with a descendant ('//') scope so the next
+                // kept element is searched as a descendant rather than a direct child.
+                // TODO: monitor this behaviour — if the last (target, not trigger) node is itself non-control it will be
+                // dropped here, leaving the locator pointing at its parent. Revisit if that case is observed in practice.
+                if (!node.IsControlElement)
+                {
+                    isGap = true;
+                    continue;
+                }
+
                 var separator = isGap ? "//" : "/";
-                var segment = GetCanonicalSegment(node);
+                var segment = GetCanonicalSegment(node, attribute1, attribute2);
 
                 builder.Append(separator).Append(segment);
                 isGap = false;
@@ -191,23 +275,24 @@ namespace G4.Recorders.Uia.Domain.Extensions
         }
 
         // Gets a selector that is unique under the already-resolved parent, adding a 1-based position
-        // when multiple siblings match the exact control type and property predicate.
-        internal static string GetCanonicalSegment(UiaNodeModel node)
+        // when multiple siblings match the exact control type and property predicate. The branch order,
+        // uniqueness conditions, and positioning are unchanged; only the two predicate attributes are configurable.
+        internal static string GetCanonicalSegment(UiaNodeModel node, string attribute1, string attribute2)
         {
             var controlType = node.ControlType ?? "*";
-            var automationId = node.AutomationId;
-            var name = node.Name;
-            var hasAutomationId = !string.IsNullOrEmpty(automationId) && !TestBrokenIdentifier(automationId);
-            var hasName = !string.IsNullOrEmpty(name) && !TestBrokenIdentifier(name);
+            var attribute1Value = node.Attribute1Value;
+            var attribute2Value = node.Attribute2Value;
+            var isAttribute1 = !string.IsNullOrEmpty(attribute1Value) && !TestBrokenIdentifier(attribute1Value);
+            var isAttribute2 = !string.IsNullOrEmpty(attribute2Value) && !TestBrokenIdentifier(attribute2Value);
 
-            if (hasAutomationId && node.AutomationIdMatchCount == 1)
+            if (isAttribute1 && node.Attribute1MatchCount == 1)
             {
-                return $"{controlType}[@AutomationId='{automationId}']";
+                return $"{controlType}[@{attribute1}='{attribute1Value}']";
             }
 
-            if (hasAutomationId && hasName && node.IdentityMatchCount > 0)
+            if (isAttribute1 && isAttribute2 && node.IdentityMatchCount > 0)
             {
-                var selector = $"{controlType}[@AutomationId='{automationId}' and @Name='{name}']";
+                var selector = $"{controlType}[@{attribute1}='{attribute1Value}' and @{attribute2}='{attribute2Value}']";
 
                 return AppendPosition(
                     selector: selector,
@@ -216,30 +301,30 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 );
             }
 
-            if (hasName && node.NameMatchCount == 1)
+            if (isAttribute2 && node.Attribute2MatchCount == 1)
             {
-                return $"{controlType}[@Name='{name}']";
+                return $"{controlType}[@{attribute2}='{attribute2Value}']";
             }
 
-            if (hasAutomationId && node.AutomationIdMatchCount > 0)
+            if (isAttribute1 && node.Attribute1MatchCount > 0)
             {
-                var selector = $"{controlType}[@AutomationId='{automationId}']";
+                var selector = $"{controlType}[@{attribute1}='{attribute1Value}']";
 
                 return AppendPosition(
                     selector: selector,
-                    matchCount: node.AutomationIdMatchCount,
-                    matchIndex: node.AutomationIdMatchIndex
+                    matchCount: node.Attribute1MatchCount,
+                    matchIndex: node.Attribute1MatchIndex
                 );
             }
 
-            if (hasName && node.NameMatchCount > 0)
+            if (isAttribute2 && node.Attribute2MatchCount > 0)
             {
-                var selector = $"{controlType}[@Name='{name}']";
+                var selector = $"{controlType}[@{attribute2}='{attribute2Value}']";
 
                 return AppendPosition(
                     selector: selector,
-                    matchCount: node.NameMatchCount,
-                    matchIndex: node.NameMatchIndex
+                    matchCount: node.Attribute2MatchCount,
+                    matchIndex: node.Attribute2MatchIndex
                 );
             }
 
@@ -260,8 +345,171 @@ namespace G4.Recorders.Uia.Domain.Extensions
             return input.Contains('\'') || input.Contains('"');
         }
 
-        // TODO: Export all properties that can be safely retrieved from the element, such as IsContentElement, IsControlElement, IsEnabled, etc.
-        // Converts an IUIAutomationElement into a UiaNodeModel representation.
+        // Resolves the ordered attribute collection into the two positional attributes the flow consumes, falling
+        // back to the defaults for any missing or blank entry so callers can pass null, one, or two attributes.
+        private static (string Attribute1, string Attribute2) NormalizeAttributes(IReadOnlyList<string> attributes)
+        {
+            var list = attributes ?? [];
+            var attribute1 = list.Count > 0 && !string.IsNullOrWhiteSpace(list[0])
+                ? list[0]
+                : s_defaultIdentityAttributes[0];
+            var attribute2 = list.Count > 1 && !string.IsNullOrWhiteSpace(list[1])
+                ? list[1]
+                : s_defaultIdentityAttributes[1];
+
+            return (attribute1, attribute2);
+        }
+
+        // Reads one attribute value from a UIA element, accepting the concatenated, dotted, and Pattern-qualified
+        // spellings of a property name. Returns null for an unknown attribute, an unsupported or complex value, or a
+        // blank value so downstream comparisons treat all of them as an absent identifier.
+        private static string ResolveAttributeValue(IUIAutomationElement element, string attribute)
+        {
+            if (element == null || !TryResolvePropertyId(attribute, out var propertyId))
+            {
+                return null;
+            }
+
+            // Read the value generically so any UIA property resolves, not just the ones with a dedicated accessor.
+            var value = Safe(() => element.GetCurrentPropertyValue(propertyId));
+
+            return StringifyPropertyValue(value);
+        }
+
+        // Resolves a property name to its UIA property id, accepting the concatenated, dotted, and Pattern-qualified
+        // spellings. Returns false for a null, empty, or unknown attribute so callers treat it as an absent identifier.
+        internal static bool TryResolvePropertyId(string attribute, out int propertyId)
+        {
+            propertyId = 0;
+
+            if (string.IsNullOrEmpty(attribute))
+            {
+                return false;
+            }
+
+            // Normalize a dotted or Pattern-qualified name to the concatenated key the property map is built with.
+            var normalized = NormalizeAttributeName(attribute);
+
+            return s_propertyIds.TryGetValue(normalized, out propertyId);
+        }
+
+        // Builds the property name to id map by reflecting over the UIA_PropertyIds constants and stripping each field
+        // name's UIA_ prefix and PropertyId suffix, mirroring the DriverServer XpathParser's resolvable property set.
+        private static Dictionary<string, int> BuildPropertyIds()
+        {
+            const string prefix = "UIA_";
+            const string suffix = "PropertyId";
+
+            var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var field in typeof(UIA_PropertyIds).GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                var name = field.Name;
+
+                // Skip any member that does not follow the UIA_<Name>PropertyId convention.
+                if (!name.StartsWith(prefix, StringComparison.Ordinal) || !name.EndsWith(suffix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var key = name[prefix.Length..^suffix.Length];
+                map[key] = (int)field.GetValue(null);
+            }
+
+            return map;
+        }
+
+        // Normalizes a dotted or Pattern-qualified property name into the concatenated key the property map uses, for
+        // example "Annotation.DateTime" and "AnnotationPattern.DateTime" both become "AnnotationDateTime". Names without
+        // a dot are returned unchanged so simple element properties keep resolving directly.
+        internal static string NormalizeAttributeName(string attribute)
+        {
+            const string patternSuffix = "Pattern";
+
+            if (attribute.IndexOf('.') < 0)
+            {
+                return attribute;
+            }
+
+            var builder = new StringBuilder(attribute.Length);
+
+            foreach (var segment in attribute.Split('.'))
+            {
+                // Drop the trailing "Pattern" qualifier so the Pattern-qualified form collapses onto the concatenated key.
+                var part = segment.Length > patternSuffix.Length
+                    && segment.EndsWith(patternSuffix, StringComparison.OrdinalIgnoreCase)
+                    ? segment[..^patternSuffix.Length]
+                    : segment;
+
+                builder.Append(part);
+            }
+
+            return builder.ToString();
+        }
+
+        // Builds the full property bag for a target element: every resolvable UIA property that is supported and holds
+        // a serializable value, excluding the ids already exposed as typed node fields. Returns null when empty so a
+        // node without extra properties keeps a lean response.
+        private static Dictionary<string, object> BuildPropertyBag(IUIAutomationElement element)
+        {
+            var bag = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var pair in s_propertyIds)
+            {
+                // Skip the properties already surfaced as typed node fields to avoid duplicating them here.
+                if (s_excludedPropertyIds.Contains(pair.Value))
+                {
+                    continue;
+                }
+
+                // Read with ignoreDefaultValue so an unsupported property returns the reserved not-supported sentinel
+                // (a COM object the value filter rejects) instead of a misleading default such as 0 or false.
+                var raw = Safe(() => element.GetCurrentPropertyValueEx(pair.Value, 1));
+
+                if (TryConvertPropertyValue(raw, out var value))
+                {
+                    bag[pair.Key] = value;
+                }
+            }
+
+            return bag.Count > 0 ? bag : null;
+        }
+
+        // Accepts a raw UIA property value only when it is a serializable scalar or non-blank string, rejecting nulls,
+        // blanks, arrays, COM objects, and the reserved not-supported sentinel so the property bag stays JSON-clean.
+        internal static bool TryConvertPropertyValue(object raw, out object value)
+        {
+            switch (raw)
+            {
+                case string text when !string.IsNullOrWhiteSpace(text):
+                    value = text;
+                    return true;
+                case bool or sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal:
+                    value = raw;
+                    return true;
+                default:
+                    value = null;
+                    return false;
+            }
+        }
+
+        // Converts a raw UIA property value into a locator-usable string, or null when it cannot serve as an identifier.
+        // Strings pass through (blanks become null); scalar values are formatted invariantly; arrays, the UIA
+        // not-supported sentinel, and other complex values resolve to null.
+        private static string StringifyPropertyValue(object value)
+        {
+            return value switch
+            {
+                null => null,
+                string text => string.IsNullOrWhiteSpace(text) ? null : text,
+                bool or byte or short or int or long or float or double or decimal
+                    => System.Convert.ToString(value, CultureInfo.InvariantCulture),
+                _ => null
+            };
+        }
+
+        // Converts an IUIAutomationElement into a UiaNodeModel representation. The full-detail path also dumps every
+        // supported, serializable UIA property into Properties; the metadata-only path (ancestors) stays lean.
         private static UiaNodeModel Convert(IUIAutomationElement element, bool metadata)
         {
             // Extract common properties from the UIA element
@@ -270,6 +518,10 @@ namespace G4.Recorders.Uia.Domain.Extensions
             var controlTypeId = Safe(() => element.CurrentControlType);
             var name = Safe(() => element.CurrentName);
             var pid = Safe(() => element.CurrentProcessId);
+
+            // Read control-view membership so locator building can skip non-control host wrappers. A COM failure
+            // defaults to true so a transient read error never drops an otherwise valid node.
+            var isControlElement = Safe(() => element.CurrentIsControlElement, fallback: 1) == 1;
 
             // Resolve the control type name using the cache, defaulting to "*"
             var controlType = Cache.ControlTypeNames.GetValueOrDefault(
@@ -286,6 +538,7 @@ namespace G4.Recorders.Uia.Domain.Extensions
                     ClassName = string.IsNullOrWhiteSpace(className) ? null : className,
                     ControlType = string.IsNullOrWhiteSpace(controlType) ? null : controlType,
                     ControlTypeId = controlTypeId,
+                    IsControlElement = isControlElement,
                     Name = string.IsNullOrWhiteSpace(name) ? null : name,
                     ProcessId = pid
                 };
@@ -333,10 +586,12 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 ControlTypeId = controlTypeId,
                 Element = element,
                 FrameworkId = Safe(() => element.CurrentFrameworkId),
+                IsControlElement = isControlElement,
                 Machine = machine,
                 Name = string.IsNullOrWhiteSpace(name) ? null : name,
                 Patterns = [.. patterns],
                 ProcessId = pid,
+                Properties = BuildPropertyBag(element),
                 RuntimeId = runtimeId.Length > 0 ? runtimeId : null
             };
         }
@@ -400,6 +655,8 @@ namespace G4.Recorders.Uia.Domain.Extensions
         private static SiblingDetails GetSiblingDetails(SiblingContext context)
         {
             var details = new SiblingDetails();
+            var nodeValue1 = context.Node.Attribute1Value;
+            var nodeValue2 = context.Node.Attribute2Value;
 
             try
             {
@@ -411,37 +668,37 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 while (child != null)
                 {
                     var controlTypeId = Safe(() => child.CurrentControlType);
-                    var automationId = Safe(() => child.CurrentAutomationId);
-                    var name = Safe(() => child.CurrentName);
                     var hasSameControlType = controlTypeId == context.Node.ControlTypeId;
-                    var hasSameAutomationId = hasSameControlType
-                        && !string.IsNullOrEmpty(context.Node.AutomationId)
+                    var childValue1 = hasSameControlType ? ResolveAttributeValue(child, context.Attribute1) : null;
+                    var childValue2 = hasSameControlType ? ResolveAttributeValue(child, context.Attribute2) : null;
+                    var hasSameAttribute1 = hasSameControlType
+                        && !string.IsNullOrEmpty(nodeValue1)
                         && string.Equals(
-                            a: automationId,
-                            b: context.Node.AutomationId,
+                            a: childValue1,
+                            b: nodeValue1,
                             comparisonType: StringComparison.Ordinal
                         );
-                    var hasSameName = hasSameControlType
-                        && !string.IsNullOrEmpty(context.Node.Name)
+                    var hasSameAttribute2 = hasSameControlType
+                        && !string.IsNullOrEmpty(nodeValue2)
                         && string.Equals(
-                            a: name,
-                            b: context.Node.Name,
+                            a: childValue2,
+                            b: nodeValue2,
                             comparisonType: StringComparison.Ordinal
                         );
-                    var hasSameIdentity = hasSameAutomationId && hasSameName;
+                    var hasSameIdentity = hasSameAttribute1 && hasSameAttribute2;
 
                     details.AllCount++;
-                    details.AutomationIdMatchCount += hasSameAutomationId ? 1 : 0;
+                    details.Attribute1MatchCount += hasSameAttribute1 ? 1 : 0;
+                    details.Attribute2MatchCount += hasSameAttribute2 ? 1 : 0;
                     details.IdentityMatchCount += hasSameIdentity ? 1 : 0;
-                    details.NameMatchCount += hasSameName ? 1 : 0;
                     details.SameControlTypeCount += hasSameControlType ? 1 : 0;
 
                     if (TestSameElement(context.Automation, child, context.Target))
                     {
                         details.AllIndex = details.AllCount;
-                        details.AutomationIdMatchIndex = Math.Max(1, details.AutomationIdMatchCount);
+                        details.Attribute1MatchIndex = Math.Max(1, details.Attribute1MatchCount);
+                        details.Attribute2MatchIndex = Math.Max(1, details.Attribute2MatchCount);
                         details.IdentityMatchIndex = Math.Max(1, details.IdentityMatchCount);
-                        details.NameMatchIndex = Math.Max(1, details.NameMatchCount);
                         details.SameControlTypeIndex = Math.Max(1, details.SameControlTypeCount);
                         details.TargetFound = true;
                     }
@@ -511,14 +768,16 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 return fallback;
             }
         }
-
         #endregion
 
         #region *** Nested Types ***
-
         // Carries the live UIA objects needed to enumerate the selected element's siblings.
         private sealed class SiblingContext
         {
+            public string Attribute1 { get; init; }
+
+            public string Attribute2 { get; init; }
+
             public CUIAutomation8 Automation { get; init; }
 
             public UiaNodeModel Node { get; init; }
@@ -537,17 +796,17 @@ namespace G4.Recorders.Uia.Domain.Extensions
 
             public int AllIndex { get; set; } = 1;
 
-            public int AutomationIdMatchCount { get; set; }
+            public int Attribute1MatchCount { get; set; }
 
-            public int AutomationIdMatchIndex { get; set; } = 1;
+            public int Attribute1MatchIndex { get; set; } = 1;
+
+            public int Attribute2MatchCount { get; set; }
+
+            public int Attribute2MatchIndex { get; set; } = 1;
 
             public int IdentityMatchCount { get; set; }
 
             public int IdentityMatchIndex { get; set; } = 1;
-
-            public int NameMatchCount { get; set; }
-
-            public int NameMatchIndex { get; set; } = 1;
 
             public int SameControlTypeCount { get; set; }
 
@@ -555,7 +814,6 @@ namespace G4.Recorders.Uia.Domain.Extensions
 
             public bool TargetFound { get; set; }
         }
-
         #endregion
     }
 }

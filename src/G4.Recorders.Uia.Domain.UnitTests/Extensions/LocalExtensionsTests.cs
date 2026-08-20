@@ -65,9 +65,9 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Extensions
                     new UiaNodeModel
                     {
                         ControlType = "Button",
-                        Name = "Submit",
-                        NameMatchCount = 2,
-                        NameMatchIndex = 2
+                        Attribute1Value = "Submit",
+                        Attribute1MatchCount = 2,
+                        Attribute1MatchIndex = 2
                     }
                 ]
             };
@@ -94,9 +94,9 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Extensions
                 [
                     new UiaNodeModel
                     {
-                        AutomationId = "TwinPanel",
-                        AutomationIdMatchCount = 2,
-                        AutomationIdMatchIndex = 2,
+                        Attribute2Value = "TwinPanel",
+                        Attribute2MatchCount = 2,
+                        Attribute2MatchIndex = 2,
                         ControlType = "Pane",
                         SiblingIndexOfSameControlType = 3
                     }
@@ -113,6 +113,53 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Extensions
             );
         }
 
+        [TestMethod(DisplayName = "Verify that the primary attribute order decides the unique-selector predicate")]
+        public void ResolveLocatorPrimaryAttributeOrderTest()
+        {
+            // Arrange: model the same element captured under each attribute order. The stored values are positional
+            // to the order supplied at capture, so each chain pairs its capture order with the matching resolve order.
+            var nameFirstChain = new UiaChainModel
+            {
+                Path = [NewDualIdentityNode(primaryValue: "Submit", secondaryValue: "SubmitButton")]
+            };
+            var automationIdFirstChain = new UiaChainModel
+            {
+                Path = [NewDualIdentityNode(primaryValue: "SubmitButton", secondaryValue: "Submit")]
+            };
+
+            // Act: resolve each chain with the same order used to capture it.
+            var nameFirst = nameFirstChain.ResolveLocator(["Name", "AutomationId"]);
+            var automationIdFirst = automationIdFirstChain.ResolveLocator(["AutomationId", "Name"]);
+
+            // Assert: the first attribute in the list wins the unique-selector branch.
+            Assert.AreEqual("/Desktop/Button[@Name='Submit']", nameFirst);
+            Assert.AreEqual("/Desktop/Button[@AutomationId='SubmitButton']", automationIdFirst);
+        }
+
+        [TestMethod(DisplayName = "Verify that a non-default attribute name is emitted in the predicate")]
+        public void ResolveLocatorNonDefaultAttributeTest()
+        {
+            // Arrange: model an element identified by its class name as the primary attribute.
+            var chain = new UiaChainModel
+            {
+                Path =
+                [
+                    new UiaNodeModel
+                    {
+                        ControlType = "Pane",
+                        Attribute1Value = "PanelHost",
+                        Attribute1MatchCount = 1
+                    }
+                ]
+            };
+
+            // Act: resolve using ClassName as the primary attribute.
+            var locator = chain.ResolveLocator(["ClassName", "Name"]);
+
+            // Assert: the configured attribute name keys the predicate.
+            Assert.AreEqual("/Desktop/Pane[@ClassName='PanelHost']", locator);
+        }
+
         // Creates the hierarchy used by the identical-branch regression.
         private static UiaChainModel NewTwinPanelChain(int twinPanelMatchIndex)
         {
@@ -124,9 +171,9 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Extensions
                     NewUniqueAutomationIdNode(controlType: "Pane", automationId: "MainLayout"),
                     new UiaNodeModel
                     {
-                        AutomationId = "TwinPanel",
-                        AutomationIdMatchCount = 2,
-                        AutomationIdMatchIndex = twinPanelMatchIndex,
+                        Attribute2Value = "TwinPanel",
+                        Attribute2MatchCount = 2,
+                        Attribute2MatchIndex = twinPanelMatchIndex,
                         ControlType = "Pane"
                     },
                     NewUniqueAutomationIdNode(controlType: "Pane", automationId: "PanelBorder"),
@@ -136,25 +183,39 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Extensions
             };
         }
 
-        // Creates a node with an automation ID that is unique under its direct parent.
+        // Creates a Button node whose primary and secondary attributes are both unique under the parent, using the
+        // positional values captured for whichever attribute order the caller intends to resolve with.
+        private static UiaNodeModel NewDualIdentityNode(string primaryValue, string secondaryValue)
+        {
+            return new UiaNodeModel
+            {
+                ControlType = "Button",
+                Attribute1Value = primaryValue,
+                Attribute1MatchCount = 1,
+                Attribute2Value = secondaryValue,
+                Attribute2MatchCount = 1
+            };
+        }
+
+        // Creates a node with an automation ID (the default secondary attribute) that is unique under its direct parent.
         private static UiaNodeModel NewUniqueAutomationIdNode(string controlType, string automationId)
         {
             return new UiaNodeModel
             {
-                AutomationId = automationId,
-                AutomationIdMatchCount = 1,
+                Attribute2Value = automationId,
+                Attribute2MatchCount = 1,
                 ControlType = controlType
             };
         }
 
-        // Creates a node with a name that is unique under its direct parent.
+        // Creates a node with a name (the default primary attribute) that is unique under its direct parent.
         private static UiaNodeModel NewUniqueNameNode(string controlType, string name)
         {
             return new UiaNodeModel
             {
                 ControlType = controlType,
-                Name = name,
-                NameMatchCount = 1
+                Attribute1Value = name,
+                Attribute1MatchCount = 1
             };
         }
     }

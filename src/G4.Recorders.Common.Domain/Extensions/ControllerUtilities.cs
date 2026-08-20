@@ -1,8 +1,11 @@
+using G4.Recorders.Common.Domain.Models;
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 
 namespace G4.Recorders.Common.Domain.Extensions
 {
@@ -88,6 +91,27 @@ namespace G4.Recorders.Common.Domain.Extensions
             {
                 return string.Empty;
             }
+        }
+
+        /// <summary>
+        /// Creates a standardized ping payload with current host and runtime metadata.
+        /// </summary>
+        /// <returns>A recorder ping payload with status, message, and system details.</returns>
+        public static RecorderPingModel NewPingResponse()
+        {
+            return new RecorderPingModel
+            {
+                FrameworkDescription = RuntimeInformation.FrameworkDescription,
+                HostName = Dns.GetHostName(),
+                IpAddress = GetLocalEndpoint(),
+                MachineName = Environment.MachineName,
+                Message = "Pong",
+                OperatingSystem = RuntimeInformation.OSDescription,
+                OsArchitecture = RuntimeInformation.OSArchitecture.ToString(),
+                ProcessArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
+                Status = "OK",
+                UtcTimestamp = DateTime.UtcNow
+            };
         }
     }
 }

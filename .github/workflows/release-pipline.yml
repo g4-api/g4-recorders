@@ -195,10 +195,23 @@ jobs:
 
   # Job to build and publish the G4 Recorders Chromium host
   build-chromium-recorder:
-    name: Build & Publish G4 Recorders - Chromium Version ${{ needs.new-version.outputs.buildVersion }}
-    runs-on: windows-latest
+    name: Build & Publish G4 Recorders - Chromium ${{ matrix.runtime }} Version ${{ needs.new-version.outputs.buildVersion }}
+    runs-on: ${{ matrix.runner }}
     needs: new-version
     if: ${{ needs.new-version.result == 'success' && needs.new-version.outputs.validVersion == 'True' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            runtime: win-x64
+            archiveExtension: zip
+            artifactName: chromium-recorder-win-drop
+          - runner: ubuntu-latest
+            runtime: linux-x64
+            archiveExtension: tar.gz
+            artifactName: chromium-recorder-linux-drop
 
     # Outputs of the job
     outputs:
@@ -244,23 +257,40 @@ jobs:
     # Step to publish the project
     - name: Publish
       shell: pwsh
-      run: dotnet publish ${{ env.chromiumProjectName }}/${{ env.chromiumProjectName }}.csproj --configuration ${{ env.buildConfiguration }} --output ${{ env.binariesDirectory }}/${{ env.chromiumProjectName }}/publish
+      run: >-
+        dotnet publish
+        ${{ env.chromiumProjectName }}/${{ env.chromiumProjectName }}.csproj
+        --configuration ${{ env.buildConfiguration }}
+        --runtime ${{ matrix.runtime }}
+        --self-contained false
+        --output ${{ env.binariesDirectory }}/${{ env.chromiumProjectName }}/publish
 
     # Step to create a build artifact
     - name: Create Build Artifact
       shell: pwsh
       run: |
         New-Item -Path "${{ env.artifactStagingDirectory }}" -ItemType Directory
-        Compress-Archive `
-            -Path ${{ env.binariesDirectory }}/${{ env.chromiumProjectName }}/publish/* `
-            -DestinationPath ${{ env.artifactStagingDirectory }}/chromium-recorder.${{ env.buildVersion }}-x64.zip
+        $archivePath = "${{ env.artifactStagingDirectory }}/chromium-recorder.${{ env.buildVersion }}-${{ matrix.runtime }}.${{ matrix.archiveExtension }}"
+
+        if ("${{ matrix.archiveExtension }}" -eq "zip") {
+          Compress-Archive `
+              -Path ${{ env.binariesDirectory }}/${{ env.chromiumProjectName }}/publish/* `
+              -DestinationPath $archivePath
+        }
+        else {
+          tar -czf $archivePath -C ${{ env.binariesDirectory }}/${{ env.chromiumProjectName }}/publish .
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "tar failed with exit code $LASTEXITCODE."
+          }
+        }
 
     # Step to upload the build artifact
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: chromium-recorder-drop
-        path: ${{ env.artifactStagingDirectory }}/*.zip
+        name: ${{ matrix.artifactName }}
+        path: ${{ env.artifactStagingDirectory }}/*
 
   # Job to create a GitHub release and tag the new version
   create-release:
@@ -295,16 +325,23 @@ jobs:
         name: uia-path-finder-drop
 
     # Step to download G4 Recorders - Chromium build artifacts
-    - name: Download G4 Recorders - Chromium Build Artifacts
+    - name: Download G4 Recorders - Chromium Windows Build Artifacts
       uses: actions/download-artifact@v4
       with:
-        name: chromium-recorder-drop
+        name: chromium-recorder-win-drop
+
+    - name: Download G4 Recorders - Chromium Linux Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: chromium-recorder-linux-drop
 
     # Step to create a GitHub release and tag
     - name: Create GitHub Release & Tag v${{ env.buildVersion }}
       uses: softprops/action-gh-release@v2
       with:
-        files: ./*.zip
+        files: |
+          ./*.zip
+          ./*.tar.gz
         tag_name: v${{ env.buildVersion }}
         name: ${{ env.artifactType }} v${{ env.buildVersion }}
         generate_release_notes: true

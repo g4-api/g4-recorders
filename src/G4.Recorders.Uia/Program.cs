@@ -203,7 +203,18 @@ builder.Services.AddHttpClient();
 #endregion
 
 #region *** Dependencies  ***
-builder.Services.AddTransient<IUiaRecorderRepository, UiaRecorderRepository>();
+// Read the ordered identity attributes that drive UIA locator generation, defaulting inside the extension when
+// the section is absent so the recorder keeps working without any appsettings change.
+var uiaIdentityAttributes = builder.Configuration
+    .GetSection("G4:Uia:IdentityAttributes")
+    .Get<string[]>();
+
+builder.Services.AddTransient<IUiaRecorderRepository>(provider => new UiaRecorderRepository(
+    cursorPositionProvider: provider.GetRequiredService<IUiaCursorPositionProvider>(),
+    identityAttributes: uiaIdentityAttributes));
+
+builder.Services.AddTransient<IRecorderMcpRepository, RecorderMcpRepository>();
+builder.Services.AddSingleton<IUiaCursorPositionProvider, UiaCursorPositionProvider>();
 #endregion
 
 #region *** Configuration ***

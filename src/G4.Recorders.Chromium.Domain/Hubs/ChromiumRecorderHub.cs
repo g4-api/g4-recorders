@@ -19,10 +19,15 @@ namespace G4.Recorders.Chromium.Domain.Hubs
     /// <param name="eventCapture">Service that broadcasts recorder events to consumers.</param>
     public class ChromiumRecorderHub(IChromiumRecorderDomain domain, IChromiumEventCaptureService eventCapture) : Hub
     {
-        // Server-to-client method the recorder extension listens on (via hubConnection.on) to
-        // close its browser windows for a graceful stop. Must match the name the extension
-        // registers; changing it requires updating the extension's constants in lockstep.
+        /// <summary>
+        /// Identifies the server-to-extension method that requests graceful browser closure.
+        /// </summary>
         public const string CloseBrowserClientMethod = "CloseBrowser";
+
+        /// <summary>
+        /// Identifies the server-to-extension method that carries correlated DOM peek requests.
+        /// </summary>
+        public const string ReceivePeekRequestClientMethod = "ReceivePeekRequest";
 
         // Domain aggregate exposing the repository used for querying UIA elements at coordinates.
         private readonly IChromiumRecorderDomain _domain = domain;
@@ -30,8 +35,28 @@ namespace G4.Recorders.Chromium.Domain.Hubs
         // Service that owns the broadcast of recorder events to connected consumers.
         private readonly IChromiumEventCaptureService _eventCapture = eventCapture;
 
-        // Sends a heartbeat message to the caller.
-        // This can be used by clients to verify the connection is alive.
+        /// <inheritdoc />
+        public override async Task OnDisconnectedAsync(Exception exception)
+        {
+            // Remove only recorder registrations; ordinary consumer connections are harmless no-ops.
+            _domain.Repository.Remove(Context.ConnectionId);
+
+            await base.OnDisconnectedAsync(exception).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Registers the calling SignalR connection as the recorder extension used for DOM lookup requests.
+        /// </summary>
+        [HubMethodName(name: nameof(RegisterRecorder))]
+        public void RegisterRecorder()
+        {
+            // Trust the transport-owned connection identifier rather than caller-provided identity data.
+            _domain.Repository.Register(Context.ConnectionId);
+        }
+
+        /// <summary>
+        /// Sends a heartbeat response to the calling client.
+        /// </summary>
         [HubMethodName(name: nameof(SendHeartbeat))]
         public Task SendHeartbeat()
         {
@@ -41,32 +66,71 @@ namespace G4.Recorders.Chromium.Domain.Hubs
                 arg1: new HubResponseModel("Heartbeat received - connection is alive"));
         }
 
-        // Resolves the UIA element at the given screen coordinates and
-        // returns its ancestor chain back to the caller.
+        /// <summary>
+        /// Resolves a Chromium DOM element at viewport-relative coordinates through the connected extension.
+        /// </summary>
+        /// <param name="point">The active-frame viewport coordinates to resolve.</param>
+        /// <returns>A task that completes after the result is sent to the caller.</returns>
         [HubMethodName(name: $"{nameof(SendPeek)}At")]
-        public Task SendPeek(RecorderPointModel point)
+        public async Task SendPeek(RecorderPointModel point)
         {
-            // Query the repository to get the UIA ancestor chain at the given coordinates.
-            var peekResponse = _domain.Repository.Peek(x: point.XPos, y: point.YPos);
+            // Require the coordinate envelope before creating the normalized extension request.
+            ArgumentNullException.ThrowIfNull(argument: point);
 
-            // Send the result back to the calling client.
-            return Clients.Caller.SendAsync(
+            // Normalize explicit coordinates through the same precedence contract used by REST callers.
+            var request = RecorderPeekRequestResolver.Resolve(point.XPos, point.YPos, focused: false);
+            var peekResponse = await _domain.Repository
+                .GetElementChainAsync(request, Context.ConnectionAborted)
+                .ConfigureAwait(false);
+
+            // Return the extension-produced chain only to the consumer that requested it.
+            await Clients.Caller.SendAsync(
                 method: "ReceivePeek",
-                arg1: new HubResponseModel(peekResponse));
+                arg1: new HubResponseModel(peekResponse),
+                cancellationToken: Context.ConnectionAborted)
+                .ConfigureAwait(false);
         }
 
-        // Resolves the UIA element at the given screen coordinates and
-        // returns its ancestor chain back to the caller.
+        /// <summary>
+        /// Resolves the focused Chromium DOM element through the connected extension.
+        /// </summary>
+        /// <returns>A task that completes after the result is sent to the caller.</returns>
         [HubMethodName(name: $"{nameof(SendPeek)}Focused")]
-        public Task SendPeek()
+        public async Task SendPeek()
         {
-            // Query the repository to get the UIA ancestor chain from the currently focused element.
-            var peekResponse = _domain.Repository.Peek();
+            // Select focused lookup only because this legacy hub method carries no coordinates.
+            var request = RecorderPeekRequestResolver.Resolve(x: null, y: null, focused: true);
+            var peekResponse = await _domain.Repository
+                .GetElementChainAsync(request, Context.ConnectionAborted)
+                .ConfigureAwait(false);
 
-            // Send the result back to the calling client.
-            return Clients.Caller.SendAsync(
+            // Return the extension-produced chain only to the consumer that requested it.
+            await Clients.Caller.SendAsync(
                 method: "ReceivePeek",
-                arg1: new HubResponseModel(peekResponse));
+                arg1: new HubResponseModel(peekResponse),
+                cancellationToken: Context.ConnectionAborted)
+                .ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolves the Chromium DOM element at the extension's latest current pointer position.
+        /// </summary>
+        /// <returns>A task that completes after the result is sent to the caller.</returns>
+        [HubMethodName(name: $"{nameof(SendPeek)}Current")]
+        public async Task SendPeekCurrent()
+        {
+            // Select current-pointer lookup only because this method carries neither coordinates nor focus intent.
+            var request = RecorderPeekRequestResolver.Resolve(x: null, y: null, focused: false);
+            var peekResponse = await _domain.Repository
+                .GetElementChainAsync(request, Context.ConnectionAborted)
+                .ConfigureAwait(false);
+
+            // Return the extension-produced chain only to the consumer that requested it.
+            await Clients.Caller.SendAsync(
+                method: "ReceivePeek",
+                arg1: new HubResponseModel(peekResponse),
+                cancellationToken: Context.ConnectionAborted)
+                .ConfigureAwait(false);
         }
 
         // Relays a recording event pushed by a producer (for example, the Chromium
@@ -80,6 +144,17 @@ namespace G4.Recorders.Chromium.Domain.Hubs
             // Delegate the fan-out to the capture service so the broadcast envelope lives in one
             // place and stays identical to the UIA broadcast.
             return _eventCapture.BroadcastRecordingEventAsync(recordingEvent);
+        }
+
+        /// <summary>
+        /// Completes a pending server peek using the correlated response produced by the recorder extension.
+        /// </summary>
+        /// <param name="response">The extension-produced correlated chain or failure.</param>
+        [HubMethodName(name: nameof(SendPeekResponse))]
+        public void SendPeekResponse(ChromiumPeekResponseModel response)
+        {
+            // Accept only a correlation owned by the singleton repository; late responses are intentionally ignored.
+            _domain.Repository.Complete(response, Context.ConnectionId);
         }
 
         // Launches a Chromium browser with the recorder extension loaded and returns its

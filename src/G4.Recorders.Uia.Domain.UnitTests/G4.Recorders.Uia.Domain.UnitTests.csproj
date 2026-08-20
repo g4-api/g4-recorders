@@ -9,9 +9,9 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-		<PackageReference Include="MSTest.TestAdapter" Version="4.3.2" />
-		<PackageReference Include="MSTest.TestFramework" Version="4.3.2" />
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+		<PackageReference Include="MSTest.TestAdapter" Version="4.3.3" />
+		<PackageReference Include="MSTest.TestFramework" Version="4.3.3" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -28,6 +28,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\G4.Recorders.Uia.Domain\G4.Recorders.Uia.Domain.csproj" />
+		<ProjectReference Include="..\G4.Recorders.Uia.PathFinder\G4.Recorders.Uia.PathFinder.csproj" />
 	</ItemGroup>
 
 </Project>

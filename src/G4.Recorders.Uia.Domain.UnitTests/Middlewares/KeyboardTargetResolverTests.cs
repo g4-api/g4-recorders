@@ -3,6 +3,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
 
+using G4.Recorders.Common.Domain.Models;
+
 using G4.Recorders.Uia.Domain.Middlewares;
 using G4.Recorders.Uia.Domain.Models;
 
@@ -245,7 +247,17 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
 
             internal int FocusPeekCount { get; private set; }
 
-            public UiaChainModel Peek()
+            public RecorderScreenshotModel GetScreenshot(bool metricsOnly)
+            {
+                throw new InvalidOperationException("Screen capture is not part of keyboard target tests.");
+            }
+
+            public RecorderPointModel MovePointer(int x, int y)
+            {
+                throw new InvalidOperationException("Pointer movement is not part of keyboard target tests.");
+            }
+
+            public UiaChainModel GetElementChain()
             {
                 // Count focused lookups so paired and repeated transitions prove they avoid extra UIA work.
                 FocusPeekCount++;
@@ -259,9 +271,19 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
                 return _focusChains.Dequeue();
             }
 
-            public UiaChainModel Peek(int x, int y)
+            public UiaChainModel GetElementChain(int x, int y)
             {
                 throw new InvalidOperationException("Coordinate lookup is not part of keyboard target tests.");
+            }
+
+            public UiaChainModel ResolveGroundedElement(int x, int y, bool skipOffset)
+            {
+                throw new InvalidOperationException("Grounding is not part of keyboard target tests.");
+            }
+
+            public RecorderWindowFocusModel SetWindowFocus(string windowTitle, string processName)
+            {
+                throw new InvalidOperationException("Window focus is not part of keyboard target tests.");
             }
         }
     }

@@ -26,7 +26,7 @@ namespace G4.Recorders.Uia.PathFinder
     /// </summary>
     public partial class MainWindow : Window
     {
-        private readonly UiaRecorderRepository _domain = new();
+        private readonly UiaRecorderRepository _domain = new(cursorPositionProvider: new UiaCursorPositionProvider());
 
         // Indicates whether the tracking is currently running.
         private bool _isRunning;
@@ -136,7 +136,7 @@ namespace G4.Recorders.Uia.PathFinder
                     GetPhysicalCursorPos(out TagPoint point);
 
                     // Query the domain service for the UI element chain at the cursor position
-                    var chain = _domain.Peek(point.X, point.Y);
+                    var chain = _domain.GetElementChain(point.X, point.Y);
 
                     // Extract the XPath-like locator from the element chain
                     var xpath = chain.Locator;

@@ -63,7 +63,7 @@ Use cases:
 | Tool                 | Records                          | Hub port | How recording starts                | REST surface    |
 | -------------------- | --------------------------------- | -------- | ------------------------------------ | --------------- |
 | **UIA Recorder**     | Windows desktop (global input)   | `9955`   | Automatically (always-on capture)    | `peek` + `ping` |
-| **Chromium Recorder** | Chromium browser (via extension) | `9956`   | When a recorder browser is running   | `ping` only     |
+| **Chromium Recorder** | Chromium browser (via extension) | `9956`   | When a recorder browser is running   | `peek` + `ping` |
 
 Both hubs share the path `/hub/v4/g4/peek` and emit the same `ReceiveRecordingEvent` payload (see [Recording Event Contract](#recording-event-contract-shared)).
 
@@ -179,14 +179,17 @@ G4.Recorders.Uia peek -x 100 -y 200
 
 ### cURL API Usage
 
-The **RecorderController** provides REST endpoints to peek at UI elements (UIA Recorder only).
+The **RecorderController** provides REST endpoints to peek at UI elements.
 
 ```bash
 # Peek at specific coordinates (x=250, y=300)
-curl "http://localhost:9955/api/v4/g4/peek?x=250&y=300"
+curl "http://localhost:9955/api/v4/g4/recorder/element?x=250&y=300"
 
 # Peek at the currently focused element
-curl "http://localhost:9955/api/v4/g4/peek?focused=true"
+curl "http://localhost:9955/api/v4/g4/recorder/element?focused=true"
+
+# Peek at the current physical cursor position
+curl "http://localhost:9955/api/v4/g4/recorder/element"
 ```
 
 The response is the ancestor `chain` object (same shape as the `chain` field in a recording event).
@@ -200,6 +203,7 @@ The response is the ancestor `chain` object (same shape as the `chain` field in 
 * `SendHeartbeat()`
 * `SendPeekAt({ xPos, yPos })`
 * `SendPeekFocused()`
+* `SendPeekCurrent()`
 
 **Server → Client Events**
 
@@ -233,15 +237,37 @@ Chromium Recorder listens on **`http://localhost:9956`**. Unlike UIA Recorder, i
 * `StartRecorder(driverParameters)` → returns the launched browser **process id**
 * `StopRecorder(processId)` → returns `true` if a tracked browser was stopped, `false` if the id is unknown/already closed
 * `SendHeartbeat()`
+* `SendPeekAt({ xPos, yPos })`
+* `SendPeekFocused()`
+* `SendPeekCurrent()`
 * `SendRecordingEvent(event)` — used by the **extension** (producer); consumers do not call this
 
 **Server → Client Events**
 
 * `ReceiveHeartbeat` — heartbeat confirmation
+* `ReceivePeek` — DOM ancestor chain result
 * `ReceiveRecordingEvent` — browser interactions with a DOM chain
 * `CloseBrowser` — sent to the **extension** to close the browser during a graceful stop
 
-> **No REST peek:** Chromium Recorder is controlled entirely over SignalR. The only REST endpoint is the `ping` health check.
+### Chromium Peek API
+
+The REST endpoint delegates DOM resolution to the one connected recorder extension. Chromium coordinates are
+relative to the active frame viewport.
+
+```bash
+# Peek at viewport coordinates
+curl "http://localhost:9956/api/v4/g4/recorder/element?x=250&y=300"
+
+# Peek at the focused element
+curl "http://localhost:9956/api/v4/g4/recorder/element?focused=true"
+
+# Peek at the extension's current pointer position
+curl "http://localhost:9956/api/v4/g4/recorder/element"
+```
+
+Supplying either coordinate selects coordinate mode and defaults the omitted axis to zero. Coordinates take
+precedence over `focused=true`; focus is used only when both coordinates are absent. With no coordinates and
+`focused=false`, the extension resolves its latest current pointer position.
 
 ### Launching and Stopping a Browser
 
@@ -310,7 +336,7 @@ hub.on("ReceiveRecordingEvent", on_recording_event)
 
 hub.start()
 
-# UIA Recorder: events flow automatically. Optional peek/heartbeat calls:
+# Both recorders expose the same optional peek and heartbeat calls.
 hub.send("SendHeartbeat", [])
 hub.send("SendPeekFocused", [])
 
@@ -352,7 +378,7 @@ connection.on("ReceiveRecordingEvent", (payload) => {
 async function main() {
     await connection.start();
 
-    // UIA Recorder: events flow automatically. Optional peek/heartbeat:
+    // Both recorders expose the same optional peek and heartbeat calls.
     await connection.invoke("SendHeartbeat");
     await connection.invoke("SendPeekFocused");
 
@@ -396,7 +422,7 @@ connection.On<JsonElement>("ReceiveRecordingEvent", envelope =>
 
 await connection.StartAsync();
 
-// UIA Recorder: events flow automatically. Optional peek/heartbeat:
+// Both recorders expose the same optional peek and heartbeat calls.
 await connection.InvokeAsync("SendHeartbeat");
 await connection.InvokeAsync("SendPeekFocused");
 

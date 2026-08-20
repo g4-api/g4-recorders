@@ -4,6 +4,9 @@
 		<!-- Assembly -->
 		<TargetFramework>net10.0-windows</TargetFramework>
 		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<!-- Unlocks System.Drawing/System.Windows.Forms for the Observe screenshot primitive (Bitmap,
+		     Graphics.CopyFromScreen, SystemInformation.VirtualScreen, Application.SetHighDpiMode). -->
+		<UseWindowsForms>true</UseWindowsForms>
 		<AssemblyVersion>10.0.0.0</AssemblyVersion>
 		<FileVersion>10.0.0.0</FileVersion>
 		<IsPackable>false</IsPackable>
@@ -31,7 +34,13 @@
 
 	<ItemGroup>
 		<PackageReference Include="CommandBridge" Version="2025.2.26.62" />
-		<PackageReference Include="G4.Extensions" Version="2026.7.11.70" />
+		<PackageReference Include="G4.Extensions" Version="2026.8.19.76" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Embeds the fixed 4-tool MCP catalog so RecorderMcpRepository can load it without touching disk at
+		     runtime, matching G4.Services.Domain.V4's own Resources.SystemTools convention. -->
+		<EmbeddedResource Include="Resources.SystemTools\**\*.*" />
 	</ItemGroup>
 
 	<ItemGroup>

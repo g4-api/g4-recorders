@@ -1,11 +1,8 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-using G4.Recorders.Uia.Domain;
-
 namespace G4.Recorders.Uia.Domain.UnitTests.PathFinder
 {
     [TestClass]
-    [TestCategory(nameof(UiaXpath))]
     [TestCategory("UnitTest")]
     public sealed class UiaXpathTests
     {
@@ -21,13 +18,12 @@ namespace G4.Recorders.Uia.Domain.UnitTests.PathFinder
             var hierarchy = UiaXpath.GetHierarchy(xpath);
 
             // Assert: verify that the position stays attached to the matching Pane selector.
-            CollectionAssert.AreEqual(
-                new[]
-                {
+            Assert.AreSequenceEqual(
+                [
                     "Window[@Name='Twin Panels Demo']",
                     "Pane[@AutomationId='TwinPanel'][2]",
                     "Button[@Name='Submit']"
-                },
+                ],
                 hierarchy
             );
         }
