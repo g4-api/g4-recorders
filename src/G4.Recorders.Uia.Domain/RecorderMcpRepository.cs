@@ -1,3 +1,4 @@
+using G4.Recorders.Common.Domain.Models;
 using G4.Recorders.Common.Domain.Models.Mcp;
 
 using System;
@@ -15,7 +16,7 @@ namespace G4.Recorders.Uia.Domain
     {
         #region *** Constants    ***
         // The MCP protocol version this recorder implements.
-        private const string ProtocolVersion = "2025-03-26";
+        private const string ProtocolVersion = "2025-06-18";
 
         // The recorder's identity, reported by initialize. Fixed rather than derived from the assembly, since
         // MCP clients only use this for display, not for capability negotiation.
@@ -50,21 +51,16 @@ namespace G4.Recorders.Uia.Domain
                 return NewErrorResponse(id, code: -32601, message: $"Tool '{toolName}' not found.");
             }
 
-            // Dispatch to the matching repository method and wrap the result in the dual content/
-            // structuredContent shape MCP clients expect.
+            // Dispatch to the matching repository method. Screenshots need an MCP image content block so clients
+            // deliver pixels to the model; the remaining tools keep the normal text/structured result shape.
             var result = InvokeTool(repository, toolName, arguments);
 
             return new McpResponseModel
             {
                 Id = id,
-                Result = new McpToolCallResultModel
-                {
-                    Content =
-                    [
-                        new McpToolCallContentModel { Type = "text", Text = JsonSerializer.Serialize(result) }
-                    ],
-                    StructuredContent = result
-                }
+                Result = toolName == "g4.GetScreenshot"
+                    ? NewScreenshotResult((RecorderScreenshotModel)result)
+                    : NewStructuredResult(result)
             };
         }
 
@@ -158,6 +154,57 @@ namespace G4.Recorders.Uia.Domain
             };
         }
 
+        // Builds a screenshot result whose PNG is represented exactly once as an MCP image content block. The
+        // coordinate-space fields remain separately available as structured metadata and as compact JSON text.
+        private static McpToolCallResultModel NewScreenshotResult(RecorderScreenshotModel screenshot)
+        {
+            var metadata = new Dictionary<string, object>
+            {
+                ["height"] = screenshot.Height,
+                ["mimeType"] = screenshot.MimeType,
+                ["originX"] = screenshot.OriginX,
+                ["originY"] = screenshot.OriginY,
+                ["width"] = screenshot.Width
+            };
+
+            var content = new List<McpToolCallContentModel>();
+
+            if (!string.IsNullOrWhiteSpace(screenshot.ImageBase64))
+            {
+                content.Add(new McpToolCallContentModel
+                {
+                    Data = screenshot.ImageBase64,
+                    MimeType = screenshot.MimeType,
+                    Type = "image"
+                });
+            }
+
+            content.Add(new McpToolCallContentModel
+            {
+                Text = JsonSerializer.Serialize(metadata),
+                Type = "text"
+            });
+
+            return new McpToolCallResultModel
+            {
+                Content = content,
+                StructuredContent = metadata
+            };
+        }
+
+        // Builds the existing text-plus-structured shape used by every non-screenshot recorder tool.
+        private static McpToolCallResultModel NewStructuredResult(object result)
+        {
+            return new McpToolCallResultModel
+            {
+                Content =
+                [
+                    new McpToolCallContentModel { Type = "text", Text = JsonSerializer.Serialize(result) }
+                ],
+                StructuredContent = result
+            };
+        }
+
         // Loads the fixed tool catalog from this assembly's embedded JSON resources exactly once. Clones each
         // inputSchema element because the source JsonDocument is disposed at the end of this method, and an
         // un-cloned JsonElement would become invalid once its owning document is gone.
@@ -184,7 +231,10 @@ namespace G4.Recorders.Uia.Domain
                     Name = resourceDocument.RootElement.GetProperty("name").GetString(),
                     Title = resourceDocument.RootElement.GetProperty("title").GetString(),
                     Description = resourceDocument.RootElement.GetProperty("description").GetString(),
-                    InputSchema = resourceDocument.RootElement.GetProperty("inputSchema").Clone()
+                    InputSchema = resourceDocument.RootElement.GetProperty("inputSchema").Clone(),
+                    OutputSchema = resourceDocument.RootElement.TryGetProperty("outputSchema", out var outputSchema)
+                        ? outputSchema.Clone()
+                        : null
                 };
 
                 tools[toolDefinition.Name] = toolDefinition;

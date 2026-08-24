@@ -22,5 +22,137 @@
 			"x",
 			"y"
 		]
+	},
+	"outputSchema": {
+		"type": "object",
+		"properties": {
+			"locator": {
+				"type": "string",
+				"description": "Canonical executable XPath locator for the grounded element."
+			},
+			"fallbackLocator": {
+				"type": "string",
+				"description": "Absolute fallback locator for the grounded element."
+			},
+			"path": {
+				"type": "array",
+				"description": "UIA ancestry from the top window through the grounded trigger element.",
+				"items": {
+					"$ref": "#/$defs/node"
+				}
+			},
+			"point": {
+				"$ref": "#/$defs/point"
+			},
+			"mouseOffset": {
+				"$ref": "#/$defs/offset"
+			},
+			"topWindow": {
+				"$ref": "#/$defs/node"
+			},
+			"trigger": {
+				"type": "string"
+			}
+		},
+		"required": [
+			"locator",
+			"fallbackLocator",
+			"path",
+			"point",
+			"trigger"
+		],
+		"additionalProperties": false,
+		"$defs": {
+			"point": {
+				"type": "object",
+				"properties": {
+					"X": { "type": "integer" },
+					"Y": { "type": "integer" }
+				},
+				"required": ["X", "Y"],
+				"additionalProperties": false
+			},
+			"offset": {
+				"type": "object",
+				"properties": {
+					"x": { "type": "integer" },
+					"y": { "type": "integer" }
+				},
+				"required": ["x", "y"],
+				"additionalProperties": false
+			},
+			"bounds": {
+				"type": "object",
+				"properties": {
+					"X": { "type": "number" },
+					"Y": { "type": "number" },
+					"width": { "type": "number" },
+					"height": { "type": "number" }
+				},
+				"required": ["X", "Y", "width", "height"],
+				"additionalProperties": false
+			},
+			"machine": {
+				"type": "object",
+				"properties": {
+					"name": { "type": "string" },
+					"publicAddress": { "type": "string" }
+				},
+				"required": ["name", "publicAddress"],
+				"additionalProperties": false
+			},
+			"pattern": {
+				"type": "object",
+				"properties": {
+					"id": { "type": "integer" },
+					"name": { "type": "string" }
+				},
+				"required": ["id", "name"],
+				"additionalProperties": false
+			},
+			"node": {
+				"type": "object",
+				"properties": {
+					"automationId": { "type": "string" },
+					"bounds": { "$ref": "#/$defs/bounds" },
+					"className": { "type": "string" },
+					"controlTypeId": { "type": "integer" },
+					"controlType": { "type": "string" },
+					"frameworkId": { "type": "string" },
+					"isTopWindow": { "type": "boolean" },
+					"isTriggerElement": { "type": "boolean" },
+					"machine": { "$ref": "#/$defs/machine" },
+					"name": { "type": "string" },
+					"patterns": {
+						"type": "array",
+						"items": { "$ref": "#/$defs/pattern" }
+					},
+					"processId": { "type": "integer" },
+					"properties": {
+						"type": "object",
+						"additionalProperties": {
+							"type": ["string", "number", "integer", "boolean"]
+						}
+					},
+					"runtimeId": {
+						"type": "array",
+						"items": { "type": "integer" }
+					},
+					"isControlElement": { "type": "boolean" },
+					"siblingIndex": { "type": "integer" },
+					"siblingIndexOfSameControlType": { "type": "integer" }
+				},
+				"required": [
+					"controlTypeId",
+					"isTopWindow",
+					"isTriggerElement",
+					"processId",
+					"isControlElement",
+					"siblingIndex",
+					"siblingIndexOfSameControlType"
+				],
+				"additionalProperties": false
+			}
+		}
 	}
 }

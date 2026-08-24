@@ -21,6 +21,14 @@ namespace G4.Recorders.Common.Domain.Models
         public string ImageBase64 { get; set; }
 
         /// <summary>
+        /// Gets or sets the media type of the encoded image.
+        /// </summary>
+        /// <remarks>
+        /// Present even for metrics-only responses so callers know which image format a full capture uses.
+        /// </remarks>
+        public string MimeType { get; set; }
+
+        /// <summary>
         /// Gets or sets the virtual-desktop height in physical pixels.
         /// </summary>
         public int Height { get; set; }

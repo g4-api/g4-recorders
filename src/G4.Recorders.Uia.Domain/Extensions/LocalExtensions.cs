@@ -84,6 +84,19 @@ namespace G4.Recorders.Uia.Domain.Extensions
             IUIAutomationElement element,
             IReadOnlyList<string> attributes)
         {
+            return NewAncestorChain(automation, element, attributes, includeTriggerDiagnostics: true);
+        }
+
+        /// <summary>
+        /// Builds an ancestor chain while allowing coordinate grounding to omit the trigger element's expensive
+        /// diagnostic property and pattern scans. Locator identity, geometry, and sibling ranks are preserved.
+        /// </summary>
+        internal static UiaChainModel NewAncestorChain(
+            this CUIAutomation8 automation,
+            IUIAutomationElement element,
+            IReadOnlyList<string> attributes,
+            bool includeTriggerDiagnostics)
+        {
             // Resolve the ordered attribute pair once so every node reads and counts the same two properties.
             var (attribute1, attribute2) = NormalizeAttributes(attributes);
 
@@ -116,7 +129,7 @@ namespace G4.Recorders.Uia.Domain.Extensions
             while (current != null)
             {
                 // Convert the current element to a node model and add it to the chain.
-                var node = Convert(current, metadataOnly);
+                var node = Convert(current, metadataOnly, includeTriggerDiagnostics);
                 nodes.Add(node);
 
                 // Resolve the two configured attribute values from the live element so locator formatting keys off
@@ -510,7 +523,10 @@ namespace G4.Recorders.Uia.Domain.Extensions
 
         // Converts an IUIAutomationElement into a UiaNodeModel representation. The full-detail path also dumps every
         // supported, serializable UIA property into Properties; the metadata-only path (ancestors) stays lean.
-        private static UiaNodeModel Convert(IUIAutomationElement element, bool metadata)
+        private static UiaNodeModel Convert(
+            IUIAutomationElement element,
+            bool metadata,
+            bool includeDiagnostics = true)
         {
             // Extract common properties from the UIA element
             var automationId = Safe(() => element.CurrentAutomationId);
@@ -544,6 +560,33 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 };
             }
 
+            // Geometry is required by both full recorder diagnostics and lean coordinate grounding.
+            var rectangle = Safe(() => element.CurrentBoundingRectangle);
+
+            // Grounding only needs identity, geometry, and the live element reference. Avoid probing every UIA
+            // property and pattern here: those cross-process calls are diagnostic enrichment, not grounding data.
+            if (!includeDiagnostics)
+            {
+                return new UiaNodeModel
+                {
+                    AutomationId = string.IsNullOrWhiteSpace(automationId) ? null : automationId,
+                    Bounds = new UiaNodeModel.BoundsRectangle
+                    {
+                        Left = rectangle.left,
+                        Top = rectangle.top,
+                        Width = Math.Max(0, rectangle.right - rectangle.left),
+                        Height = Math.Max(0, rectangle.bottom - rectangle.top)
+                    },
+                    ClassName = string.IsNullOrWhiteSpace(className) ? null : className,
+                    ControlType = string.IsNullOrWhiteSpace(controlType) ? null : controlType,
+                    ControlTypeId = controlTypeId,
+                    Element = element,
+                    IsControlElement = isControlElement,
+                    Name = string.IsNullOrWhiteSpace(name) ? null : name,
+                    ProcessId = pid
+                };
+            }
+
             // Initialize runtimeId to an empty array
             int[] runtimeId = [];
 
@@ -556,9 +599,6 @@ namespace G4.Recorders.Uia.Domain.Extensions
             {
                 // Ignore errors when retrieving runtime ID
             }
-
-            // Extract the element bounding rectangle
-            var rectangle = Safe(() => element.CurrentBoundingRectangle);
 
             // Extract supported patterns (if any)
             var patterns = GetPatterns(element);

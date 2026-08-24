@@ -38,6 +38,11 @@ namespace G4.Recorders.Uia.Domain
         #region *** Constants    ***
         // Restores a minimized window before a foreground-focus attempt, matching Win32's SW_RESTORE value.
         private const int ShowWindowRestore = 9;
+
+        // Bound each cross-process UIA provider request. The platform default is long enough for an MCP caller to
+        // time out first, leaving the server request apparently frozen when an application provider is unresponsive.
+        internal const uint UiaConnectionTimeoutMilliseconds = 2_000;
+        internal const uint UiaTransactionTimeoutMilliseconds = 2_000;
         #endregion
 
         #region *** Fields       ***
@@ -75,6 +80,7 @@ namespace G4.Recorders.Uia.Domain
             var screenshot = new RecorderScreenshotModel
             {
                 Height = virtualScreen.Height,
+                MimeType = "image/png",
                 OriginX = virtualScreen.X,
                 OriginY = virtualScreen.Y,
                 Width = virtualScreen.Width
@@ -124,7 +130,7 @@ namespace G4.Recorders.Uia.Domain
         public UiaChainModel GetElementChain()
         {
             // Create a new instance of the UI Automation engine.
-            var automation = new CUIAutomation8();
+            var automation = CreateAutomationClient();
 
             // Get the element that currently has keyboard focus.
             var element = automation.GetFocusedElement();
@@ -148,14 +154,23 @@ namespace G4.Recorders.Uia.Domain
         /// <inheritdoc />
         public UiaChainModel GetElementChain(int x, int y)
         {
+            return GetElementChain(x, y, includeTriggerDiagnostics: true);
+        }
+
+        // Builds a coordinate chain with either the recorder's full trigger diagnostics or the lean grounding shape.
+        private UiaChainModel GetElementChain(int x, int y, bool includeTriggerDiagnostics)
+        {
             // Initialize the UI Automation engine.
-            var automation = new CUIAutomation8();
+            var automation = CreateAutomationClient();
 
             // Get the element directly under the given screen coordinates.
             var element = automation.ElementFromPoint(pt: new tagPOINT { x = x, y = y });
 
             // If an element was found, build and return its ancestor chain; otherwise return null.
-            var chain = automation.NewAncestorChain(element, _identityAttributes) ?? new UiaChainModel();
+            var chain = automation.NewAncestorChain(
+                element,
+                _identityAttributes,
+                includeTriggerDiagnostics) ?? new UiaChainModel();
 
             // Set the point information in the chain model if it exists.
             chain.Point = new RecorderPointModel { XPos = x, YPos = y };
@@ -180,7 +195,10 @@ namespace G4.Recorders.Uia.Domain
 
             // Resolve the element at the confirmed physical cursor position, not the requested point, so pointer
             // clamping or another operating-system adjustment cannot separate the hover state from the locator.
-            var chain = GetElementChain(settledPoint.XPos, settledPoint.YPos);
+            var chain = GetElementChain(
+                settledPoint.XPos,
+                settledPoint.YPos,
+                includeTriggerDiagnostics: false);
 
             // Skip the offset computation entirely when the caller only needs the chain itself.
             if (skipOffset)
@@ -193,6 +211,19 @@ namespace G4.Recorders.Uia.Domain
             chain.MouseOffset = MouseTargetResolver.ResolveOffset(chain, settledPoint.XPos, settledPoint.YPos);
 
             return chain;
+        }
+
+        // Creates a UIA client whose provider calls cannot outlive the recorder's normal request budget. These are
+        // native IUIAutomation2 controls exposed by CUIAutomation8, not application-level cancellation wrappers.
+        internal static CUIAutomation8 CreateAutomationClient()
+        {
+            var automation = new CUIAutomation8();
+            var automationSettings = (IUIAutomation2)automation;
+
+            automationSettings.ConnectionTimeout = UiaConnectionTimeoutMilliseconds;
+            automationSettings.TransactionTimeout = UiaTransactionTimeoutMilliseconds;
+
+            return automation;
         }
 
         /// <inheritdoc />
