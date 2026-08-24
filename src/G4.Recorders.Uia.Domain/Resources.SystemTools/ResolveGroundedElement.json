@@ -101,15 +101,6 @@
 				"required": ["name", "publicAddress"],
 				"additionalProperties": false
 			},
-			"pattern": {
-				"type": "object",
-				"properties": {
-					"id": { "type": "integer" },
-					"name": { "type": "string" }
-				},
-				"required": ["id", "name"],
-				"additionalProperties": false
-			},
 			"node": {
 				"type": "object",
 				"properties": {
@@ -123,10 +114,6 @@
 					"isTriggerElement": { "type": "boolean" },
 					"machine": { "$ref": "#/$defs/machine" },
 					"name": { "type": "string" },
-					"patterns": {
-						"type": "array",
-						"items": { "$ref": "#/$defs/pattern" }
-					},
 					"processId": { "type": "integer" },
 					"properties": {
 						"type": "object",

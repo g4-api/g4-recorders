@@ -111,6 +111,10 @@ namespace G4.Recorders.Uia.Domain.UnitTests
             Assert.AreEqual("#/$defs/point", properties.GetProperty("point").GetProperty("$ref").GetString());
             Assert.AreEqual("#/$defs/offset", properties.GetProperty("mouseOffset").GetProperty("$ref").GetString());
             Assert.IsFalse(outputSchema.GetProperty("additionalProperties").GetBoolean());
+            Assert.IsFalse(
+                outputSchema.GetProperty("$defs").GetProperty("node").GetProperty("properties")
+                    .TryGetProperty("patterns", out _));
+            Assert.IsFalse(outputSchema.GetProperty("$defs").TryGetProperty("pattern", out _));
         }
 
         [TestMethod(DisplayName = "Verify that UIA provider calls use bounded native timeouts")]

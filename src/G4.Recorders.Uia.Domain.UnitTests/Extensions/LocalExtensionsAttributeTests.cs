@@ -71,6 +71,39 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Extensions
             Assert.IsFalse(LocalExtensions.TryResolvePropertyId(null, out _));
         }
 
+        [TestMethod(DisplayName = "Verify that default additional property discovery contains only AriaRole.")]
+        public void DefaultAdditionalIdentityPropertiesContainOnlyAriaRoleTest()
+        {
+            // Act: select properties using the recorder's default typed identity attributes.
+            var properties = LocalExtensions.ResolveAdditionalIdentityProperties(["AutomationId", "Name"]);
+
+            // Assert: typed properties are not duplicated; only the predefined non-typed identity remains.
+            Assert.HasCount(1, properties);
+            Assert.AreEqual(UIA_PropertyIds.UIA_AriaRolePropertyId, properties["AriaRole"]);
+        }
+
+        [TestMethod(DisplayName = "Verify that configured non-typed identity properties are included and deduplicated.")]
+        public void ConfiguredAdditionalIdentityPropertiesAreIncludedAndDeduplicatedTest()
+        {
+            // Act: request one custom property through each supported alias along with typed and unknown properties.
+            var properties = LocalExtensions.ResolveAdditionalIdentityProperties(
+            [
+                "AutomationId",
+                "Name",
+                "Value.Value",
+                "ValuePattern.Value",
+                "ValueValue",
+                "NotAReal.Property"
+            ]);
+
+            // Assert: AriaRole remains, Value appears once under its canonical key, and everything else is excluded.
+            Assert.HasCount(2, properties);
+            Assert.AreEqual(UIA_PropertyIds.UIA_AriaRolePropertyId, properties["AriaRole"]);
+            Assert.AreEqual(UIA_PropertyIds.UIA_ValueValuePropertyId, properties["ValueValue"]);
+            Assert.IsFalse(properties.ContainsKey("AutomationId"));
+            Assert.IsFalse(properties.ContainsKey("Name"));
+        }
+
         [TestMethod(DisplayName = "Verify that serializable scalar and string property values are accepted.")]
         public void PropertyValueFilterAcceptsSerializableValuesTest()
         {

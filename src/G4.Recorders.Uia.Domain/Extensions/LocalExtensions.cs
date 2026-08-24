@@ -29,9 +29,14 @@ namespace G4.Recorders.Uia.Domain.Extensions
         // set the DriverServer XpathParser exposes, so a locator this recorder generates round-trips back through it.
         private static readonly Dictionary<string, int> s_propertyIds = BuildPropertyIds();
 
+        // Provides the recorder's canonical UIA property name for each property id, so configured dotted or
+        // Pattern-qualified aliases return the same stable key in the Properties bag.
+        private static readonly Dictionary<int, string> s_propertyNamesById = s_propertyIds
+            .ToDictionary(pair => pair.Value, pair => pair.Key);
+
         // Property ids already surfaced as typed fields on the node model. They are excluded from the Properties bag
-        // so the full-property dump does not duplicate Name, AutomationId, ClassName, ControlType, FrameworkId,
-        // ProcessId, RuntimeId, and BoundingRectangle.
+        // so the identity-property bag does not duplicate Name, AutomationId, ClassName, ControlType, FrameworkId,
+        // ProcessId, RuntimeId, BoundingRectangle, and IsControlElement.
         private static readonly HashSet<int> s_excludedPropertyIds =
         [
             UIA_PropertyIds.UIA_RuntimeIdPropertyId,
@@ -41,7 +46,8 @@ namespace G4.Recorders.Uia.Domain.Extensions
             UIA_PropertyIds.UIA_NamePropertyId,
             UIA_PropertyIds.UIA_AutomationIdPropertyId,
             UIA_PropertyIds.UIA_ClassNamePropertyId,
-            UIA_PropertyIds.UIA_FrameworkIdPropertyId
+            UIA_PropertyIds.UIA_FrameworkIdPropertyId,
+            UIA_PropertyIds.UIA_IsControlElementPropertyId
         ];
         #endregion
 
@@ -53,7 +59,10 @@ namespace G4.Recorders.Uia.Domain.Extensions
         /// <returns>A <see cref="UiaNodeModel"/> containing extracted details such as name, control type, class name, automation ID, process ID, runtime ID, and bounding rectangle.</returns>
         public static UiaNodeModel ConvertToNode(this IUIAutomationElement element)
         {
-            return Convert(element, metadata: false);
+            return Convert(
+                element,
+                metadata: false,
+                attributes: s_defaultIdentityAttributes);
         }
 
         /// <summary>
@@ -129,7 +138,11 @@ namespace G4.Recorders.Uia.Domain.Extensions
             while (current != null)
             {
                 // Convert the current element to a node model and add it to the chain.
-                var node = Convert(current, metadataOnly, includeTriggerDiagnostics);
+                var node = Convert(
+                    current,
+                    metadataOnly,
+                    includeTriggerDiagnostics,
+                    attributes);
                 nodes.Add(node);
 
                 // Resolve the two configured attribute values from the live element so locator formatting keys off
@@ -460,21 +473,41 @@ namespace G4.Recorders.Uia.Domain.Extensions
             return builder.ToString();
         }
 
-        // Builds the full property bag for a target element: every resolvable UIA property that is supported and holds
-        // a serializable value, excluding the ids already exposed as typed node fields. Returns null when empty so a
-        // node without extra properties keeps a lean response.
-        private static Dictionary<string, object> BuildPropertyBag(IUIAutomationElement element)
+        // Selects the small additional-property set returned beside the node's typed identity fields. AriaRole is
+        // always useful identity metadata; caller-configured identity attributes are added when they are not already
+        // represented by typed fields. Property ids provide alias-insensitive deduplication.
+        internal static IReadOnlyDictionary<string, int> ResolveAdditionalIdentityProperties(
+            IReadOnlyList<string> attributes)
         {
-            var bag = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            var selected = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var requested = new[] { "AriaRole" }
+                .Concat(attributes ?? []);
 
-            foreach (var pair in s_propertyIds)
+            foreach (var attribute in requested)
             {
-                // Skip the properties already surfaced as typed node fields to avoid duplicating them here.
-                if (s_excludedPropertyIds.Contains(pair.Value))
+                if (!TryResolvePropertyId(attribute, out var propertyId)
+                    || s_excludedPropertyIds.Contains(propertyId)
+                    || !s_propertyNamesById.TryGetValue(propertyId, out var propertyName))
                 {
                     continue;
                 }
 
+                selected.TryAdd(propertyName, propertyId);
+            }
+
+            return selected;
+        }
+
+        // Builds the additional identity-property bag for a target element. The node's common identity is already
+        // represented by typed fields, so this reads only AriaRole and configured non-typed identity attributes.
+        private static Dictionary<string, object> BuildPropertyBag(
+            IUIAutomationElement element,
+            IReadOnlyList<string> attributes)
+        {
+            var bag = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var pair in ResolveAdditionalIdentityProperties(attributes))
+            {
                 // Read with ignoreDefaultValue so an unsupported property returns the reserved not-supported sentinel
                 // (a COM object the value filter rejects) instead of a misleading default such as 0 or false.
                 var raw = Safe(() => element.GetCurrentPropertyValueEx(pair.Value, 1));
@@ -521,12 +554,13 @@ namespace G4.Recorders.Uia.Domain.Extensions
             };
         }
 
-        // Converts an IUIAutomationElement into a UiaNodeModel representation. The full-detail path also dumps every
-        // supported, serializable UIA property into Properties; the metadata-only path (ancestors) stays lean.
+        // Converts an IUIAutomationElement into a UiaNodeModel representation. The full-detail path adds only selected
+        // identity properties to Properties; the metadata-only path (ancestors) stays lean.
         private static UiaNodeModel Convert(
             IUIAutomationElement element,
             bool metadata,
-            bool includeDiagnostics = true)
+            bool includeDiagnostics = true,
+            IReadOnlyList<string> attributes = null)
         {
             // Extract common properties from the UIA element
             var automationId = Safe(() => element.CurrentAutomationId);
@@ -563,8 +597,8 @@ namespace G4.Recorders.Uia.Domain.Extensions
             // Geometry is required by both full recorder diagnostics and lean coordinate grounding.
             var rectangle = Safe(() => element.CurrentBoundingRectangle);
 
-            // Grounding only needs identity, geometry, and the live element reference. Avoid probing every UIA
-            // property and pattern here: those cross-process calls are diagnostic enrichment, not grounding data.
+            // Grounding only needs identity, geometry, and the live element reference. Avoid additional configured
+            // property reads here because they do not contribute to grounding data.
             if (!includeDiagnostics)
             {
                 return new UiaNodeModel
@@ -600,9 +634,6 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 // Ignore errors when retrieving runtime ID
             }
 
-            // Extract supported patterns (if any)
-            var patterns = GetPatterns(element);
-
             // Extract mchine information
             var machine = new UiaNodeModel.MachineDataModel
             {
@@ -629,66 +660,10 @@ namespace G4.Recorders.Uia.Domain.Extensions
                 IsControlElement = isControlElement,
                 Machine = machine,
                 Name = string.IsNullOrWhiteSpace(name) ? null : name,
-                Patterns = [.. patterns],
                 ProcessId = pid,
-                Properties = BuildPropertyBag(element),
+                Properties = BuildPropertyBag(element, attributes),
                 RuntimeId = runtimeId.Length > 0 ? runtimeId : null
             };
-        }
-
-        // Retrieves the list of supported UI Automation patterns for a given element.
-        private static List<UiaNodeModel.PatternDataModel> GetPatterns(IUIAutomationElement element)
-        {
-            // Resolves all supported UI Automation patterns for a given element.
-            static List<UiaNodeModel.PatternDataModel> ResolvePatterns(IUIAutomationElement element)
-            {
-                // Holds all supported pattern metadata for the element.
-                var list = new List<UiaNodeModel.PatternDataModel>();
-
-                // Iterate through all known UI Automation pattern IDs and names.
-                foreach (var (id, name) in Cache.PatternNames)
-                {
-                    // Attempt to retrieve the current pattern for this ID.
-                    // Uses Safe<T> to handle COM-related exceptions gracefully.
-                    var patternObj = Safe(() => element.GetCurrentPattern(id), fallback: null);
-
-                    // If the pattern is not supported, skip to the next.
-                    if (patternObj == null)
-                    {
-                        continue;
-                    }
-
-                    // Add the supported pattern metadata to the result list.
-                    list.Add(new UiaNodeModel.PatternDataModel
-                    {
-                        Id = id,
-                        Name = name
-                    });
-                }
-
-                // Return all supported patterns for the element.
-                return list;
-            }
-
-            // Initialize an empty list to hold pattern data.
-            var list = new List<UiaNodeModel.PatternDataModel>();
-
-            try
-            {
-                // Attempt to resolve supported patterns.
-                return ResolvePatterns(element);
-            }
-            catch (COMException)
-            {
-                // Ignore; element may be stale or provider buggy.
-            }
-            catch (InvalidComObjectException)
-            {
-                // Ignore; element may have been released.
-            }
-
-            // Return an empty list if exceptions occurred.
-            return list;
         }
 
         // Captures selector-relative match counts and positions for the target under its direct parent.
