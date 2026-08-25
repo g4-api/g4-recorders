@@ -9,6 +9,9 @@ using UIAutomationClient;
 
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -90,6 +93,12 @@ namespace G4.Recorders.Uia.Domain.UnitTests
             Assert.AreSequenceEqual(
                 new[] { "height", "mimeType", "originX", "originY", "width" },
                 required);
+            StringAssert.Contains(
+                properties.GetProperty("width").GetProperty("description").GetString(),
+                "original encoded PNG");
+            StringAssert.Contains(
+                properties.GetProperty("originX").GetProperty("description").GetString(),
+                "physicalX = originX + imagePixelX");
         }
 
         [TestMethod(DisplayName = "Verify that ResolveGroundedElement publishes its structured output schema")]
@@ -246,6 +255,44 @@ namespace G4.Recorders.Uia.Domain.UnitTests
             Assert.IsFalse(imageContent.TryGetProperty("text", out _));
             Assert.IsFalse(structuredContent.TryGetProperty("imageBase64", out _));
             Assert.AreEqual(1, wireJson.Split("AQIDBA==", StringSplitOptions.None).Length - 1);
+        }
+
+        [TestMethod(DisplayName = "Verify that screenshot metadata dimensions match the returned PNG")]
+        public void CallToolReturnsMatchingScreenshotDimensionsTest()
+        {
+            // Arrange: build a real PNG with deliberately non-square dimensions.
+            using var bitmap = new Bitmap(width: 7, height: 3);
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, ImageFormat.Png);
+            var recorderRepository = new StubRecorderRepository
+            {
+                Screenshot = new RecorderScreenshotModel
+                {
+                    Height = bitmap.Height,
+                    ImageBase64 = Convert.ToBase64String(stream.ToArray()),
+                    MimeType = "image/png",
+                    OriginX = -10,
+                    OriginY = 20,
+                    Width = bitmap.Width
+                }
+            };
+            var subject = new RecorderMcpRepository(recorderRepository);
+            using var parametersDocument = JsonDocument.Parse(
+                "{\"name\":\"g4.GetScreenshot\",\"arguments\":{\"metricsOnly\":false}}");
+
+            // Act: dispatch through MCP and decode exactly the image block the model receives.
+            var response = subject.CallTool(parametersDocument.RootElement, id: 6);
+            var result = (McpToolCallResultModel)response.Result;
+            var imageContent = result.Content.Single(item => item.Type == "image");
+            var metadata = (Dictionary<string, object>)result.StructuredContent;
+            using var decodedStream = new MemoryStream(Convert.FromBase64String(imageContent.Data));
+            using var decodedImage = Image.FromStream(decodedStream);
+
+            // Assert: the MCP metadata describes the original payload, not a client-rendered preview.
+            Assert.AreEqual(decodedImage.Width, metadata["width"]);
+            Assert.AreEqual(decodedImage.Height, metadata["height"]);
+            Assert.AreEqual(7, decodedImage.Width);
+            Assert.AreEqual(3, decodedImage.Height);
         }
 
         [TestMethod(DisplayName = "Verify that metrics-only GetScreenshot omits image content")]

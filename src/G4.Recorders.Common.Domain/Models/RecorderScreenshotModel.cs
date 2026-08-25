@@ -29,7 +29,7 @@ namespace G4.Recorders.Common.Domain.Models
         public string MimeType { get; set; }
 
         /// <summary>
-        /// Gets or sets the virtual-desktop height in physical pixels.
+        /// Gets or sets the virtual-desktop height in physical pixels and the exact height of the encoded PNG.
         /// </summary>
         public int Height { get; set; }
 
@@ -38,6 +38,8 @@ namespace G4.Recorders.Common.Domain.Models
         /// </summary>
         /// <remarks>
         /// Negative when a monitor is positioned to the left of the primary monitor.
+        /// Original PNG pixel zero maps to this physical desktop coordinate; a rendered preview must first be
+        /// scaled back to the original PNG pixel grid.
         /// </remarks>
         public int OriginX { get; set; }
 
@@ -46,11 +48,13 @@ namespace G4.Recorders.Common.Domain.Models
         /// </summary>
         /// <remarks>
         /// Negative when a monitor is positioned above the primary monitor.
+        /// Original PNG pixel zero maps to this physical desktop coordinate; a rendered preview must first be
+        /// scaled back to the original PNG pixel grid.
         /// </remarks>
         public int OriginY { get; set; }
 
         /// <summary>
-        /// Gets or sets the virtual-desktop width in physical pixels.
+        /// Gets or sets the virtual-desktop width in physical pixels and the exact width of the encoded PNG.
         /// </summary>
         public int Width { get; set; }
         #endregion

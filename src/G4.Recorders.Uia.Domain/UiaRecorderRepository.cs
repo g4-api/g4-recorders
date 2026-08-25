@@ -71,11 +71,9 @@ namespace G4.Recorders.Uia.Domain
         /// <inheritdoc />
         public RecorderScreenshotModel GetScreenshot(bool metricsOnly)
         {
-            // Enable per-monitor DPI awareness before reading virtual-screen bounds so multi-monitor origins and
-            // dimensions are accurate. Idempotent - returns false without throwing if already set by the host.
-            Application.SetHighDpiMode(highDpiMode: HighDpiMode.PerMonitorV2);
-
-            // Read the virtual-desktop bounds first, since both the metrics-only and full-capture paths need them.
+            // The executable declares PerMonitorV2 awareness in its process manifest. DPI awareness must be fixed
+            // before any UI is created; changing it lazily here is too late and its failure could silently leave
+            // SystemInformation.VirtualScreen in a virtualized coordinate space.
             var virtualScreen = SystemInformation.VirtualScreen;
             var screenshot = new RecorderScreenshotModel
             {
