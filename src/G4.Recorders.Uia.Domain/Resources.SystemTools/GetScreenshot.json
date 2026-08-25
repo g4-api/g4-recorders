@@ -1,7 +1,7 @@
 {
 	"name": "g4.GetScreenshot",
 	"title": "Capture The Virtual Desktop",
-	"description": "Captures the full virtual desktop as a base64 PNG, along with its coordinate-space metrics.",
+	"description": "Captures the full virtual desktop as an MCP image content block and returns the original encoded PNG dimensions and physical desktop origin as structured content. Clients may render a scaled preview; map preview coordinates back to original image pixels before adding originX and originY for a physical recorder coordinate.",
 	"inputSchema": {
 		"type": "object",
 		"properties": {
@@ -10,5 +10,38 @@
 				"description": "When true, skips the pixel capture and returns only virtual-desktop bounds."
 			}
 		}
+	},
+	"outputSchema": {
+		"type": "object",
+		"properties": {
+			"width": {
+				"type": "integer",
+				"description": "Exact width in pixels of the original encoded PNG and captured virtual desktop. This is not a client-rendered preview width."
+			},
+			"height": {
+				"type": "integer",
+				"description": "Exact height in pixels of the original encoded PNG and captured virtual desktop. This is not a client-rendered preview height."
+			},
+			"originX": {
+				"type": "integer",
+				"description": "Physical desktop X coordinate represented by original PNG pixel x=0. After scaling a preview point to the original image grid, physicalX = originX + imagePixelX."
+			},
+			"originY": {
+				"type": "integer",
+				"description": "Physical desktop Y coordinate represented by original PNG pixel y=0. After scaling a preview point to the original image grid, physicalY = originY + imagePixelY."
+			},
+			"mimeType": {
+				"type": "string",
+				"const": "image/png"
+			}
+		},
+		"required": [
+			"width",
+			"height",
+			"originX",
+			"originY",
+			"mimeType"
+		],
+		"additionalProperties": false
 	}
 }

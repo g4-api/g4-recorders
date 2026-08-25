@@ -31,6 +31,11 @@ namespace G4.Recorders.Common.Domain.Models.Mcp
         /// Gets or sets the JSON Schema describing the tool's <c>arguments</c> object for <c>tools/call</c>.
         /// </summary>
         public JsonElement InputSchema { get; set; }
+
+        /// <summary>
+        /// Gets or sets the optional JSON Schema describing the tool's <c>structuredContent</c> result.
+        /// </summary>
+        public JsonElement? OutputSchema { get; set; }
         #endregion
     }
 }
