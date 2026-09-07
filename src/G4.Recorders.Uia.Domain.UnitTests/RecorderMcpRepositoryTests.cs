@@ -38,9 +38,10 @@ namespace G4.Recorders.Uia.Domain.UnitTests
                 .OrderBy(toolName => toolName, StringComparer.Ordinal)
                 .ToArray();
 
-            // Assert: the atomic grounding tool replaces Peek in the four-tool public contract.
+            // Assert: the fixed catalog exposes recorder-owned screenshot conversion and excludes Peek.
             string[] expectedToolNames =
             [
+                "g4.ConvertScreenshotPoint",
                 "g4.GetScreenshot",
                 "g4.MovePointer",
                 "g4.ResolveGroundedElement",
@@ -89,16 +90,44 @@ namespace G4.Recorders.Uia.Domain.UnitTests
             Assert.AreEqual("integer", properties.GetProperty("originX").GetProperty("type").GetString());
             Assert.AreEqual("integer", properties.GetProperty("originY").GetProperty("type").GetString());
             Assert.AreEqual("image/png", properties.GetProperty("mimeType").GetProperty("const").GetString());
+            Assert.AreEqual("array", properties.GetProperty("views").GetProperty("type").GetString());
             Assert.IsFalse(outputSchema.GetProperty("additionalProperties").GetBoolean());
             Assert.AreSequenceEqual(
-                new[] { "height", "mimeType", "originX", "originY", "width" },
+                new[] { "height", "mimeType", "originX", "originY", "views", "width" },
                 required);
             StringAssert.Contains(
                 properties.GetProperty("width").GetProperty("description").GetString(),
-                "original encoded PNG");
+                "overview");
             StringAssert.Contains(
                 properties.GetProperty("originX").GetProperty("description").GetString(),
-                "physicalX = originX + imagePixelX");
+                "Informational only");
+        }
+
+        [TestMethod(DisplayName = "Verify that ConvertScreenshotPoint accepts only an image number and raw point")]
+        public void FindToolsPublishesRecorderOwnedPointConversionSchemaTest()
+        {
+            // Arrange: inspect the fixed recorder catalog through its normal MCP dispatcher.
+            var subject = new RecorderMcpRepository(new StubRecorderRepository());
+
+            // Act: read the screenshot-point converter definition.
+            var result = (McpToolsListResultModel)subject.FindTools(id: 31).Result;
+            var converter = result.Tools.Single(tool => tool.Name == "g4.ConvertScreenshotPoint");
+            var inputSchema = converter.InputSchema;
+            var propertyNames = inputSchema.GetProperty("properties")
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            var requiredNames = inputSchema.GetProperty("required")
+                .EnumerateArray()
+                .Select(item => item.GetString())
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+
+            // Assert: dimensions, origins, scaling, and DPI information cannot be supplied by the caller.
+            Assert.AreSequenceEqual(new[] { "imageNumber", "x", "y" }, propertyNames);
+            Assert.AreSequenceEqual(new[] { "imageNumber", "x", "y" }, requiredNames);
+            Assert.IsFalse(inputSchema.GetProperty("additionalProperties").GetBoolean());
         }
 
         [TestMethod(DisplayName = "Verify that ResolveGroundedElement publishes its structured output schema")]
@@ -185,17 +214,21 @@ namespace G4.Recorders.Uia.Domain.UnitTests
         [TestMethod(DisplayName = "Verify that GetScreenshot returns an MCP image block and separate metadata")]
         public void CallToolReturnsScreenshotImageContentTest()
         {
-            // Arrange: return a deterministic capture without touching the operating system.
+            // Arrange: return a deterministic valid PNG without touching the operating system.
+            using var bitmap = new Bitmap(width: 4, height: 2);
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, ImageFormat.Png);
+            var imageBase64 = Convert.ToBase64String(stream.ToArray());
             var recorderRepository = new StubRecorderRepository
             {
                 Screenshot = new RecorderScreenshotModel
                 {
-                    Height = 1080,
-                    ImageBase64 = "AQIDBA==",
+                    Height = bitmap.Height,
+                    ImageBase64 = imageBase64,
                     MimeType = "image/png",
                     OriginX = -1920,
                     OriginY = 0,
-                    Width = 3840
+                    Width = bitmap.Width
                 }
             };
             var subject = new RecorderMcpRepository(recorderRepository);
@@ -210,19 +243,33 @@ namespace G4.Recorders.Uia.Domain.UnitTests
 
             // Assert: pixels are model-visible image content and are not duplicated in structured metadata.
             Assert.IsNull(response.Error);
-            Assert.AreEqual(2, content.Length);
-            Assert.AreEqual("image", content[0].Type);
-            Assert.AreEqual("AQIDBA==", content[0].Data);
-            Assert.AreEqual("image/png", content[0].MimeType);
-            Assert.IsNull(content[0].Text);
-            Assert.AreEqual("text", content[1].Type);
-            Assert.IsFalse(content[1].Text.Contains("AQIDBA==", StringComparison.Ordinal));
-            Assert.AreEqual(3840, metadata["width"]);
-            Assert.AreEqual(1080, metadata["height"]);
+            Assert.AreEqual(3, content.Length);
+            Assert.AreEqual("text", content[0].Type);
+            using (var labelDocument = JsonDocument.Parse(content[0].Text))
+            {
+                var label = labelDocument.RootElement.GetProperty("screenshotView");
+                Assert.AreEqual(1, label.GetProperty("imageNumber").GetInt32());
+                Assert.AreEqual("native", label.GetProperty("kind").GetString());
+            }
+            Assert.AreEqual("image", content[1].Type);
+            Assert.AreEqual(imageBase64, content[1].Data);
+            Assert.AreEqual("image/png", content[1].MimeType);
+            Assert.IsNull(content[1].Text);
+            Assert.AreEqual("text", content[2].Type);
+            Assert.IsFalse(content[2].Text.Contains(imageBase64, StringComparison.Ordinal));
+            Assert.AreEqual(4, metadata["width"]);
+            Assert.AreEqual(2, metadata["height"]);
             Assert.AreEqual(-1920, metadata["originX"]);
             Assert.AreEqual(0, metadata["originY"]);
             Assert.AreEqual("image/png", metadata["mimeType"]);
+            var views = (Dictionary<string, object>[])metadata["views"];
+            Assert.AreEqual(1, views.Length);
+            Assert.AreEqual(1, views[0]["imageNumber"]);
+            Assert.AreEqual("native", views[0]["kind"]);
+            Assert.AreEqual(4, views[0]["width"]);
+            Assert.AreEqual(2, views[0]["height"]);
             Assert.IsFalse(metadata.ContainsKey("imageBase64"));
+            Assert.IsFalse(metadata.ContainsKey("coordinateTransform"));
 
             var screenshotDefinition = ((McpToolsListResultModel)subject.FindTools(id: 5).Result)
                 .Tools
@@ -246,15 +293,22 @@ namespace G4.Recorders.Uia.Domain.UnitTests
             });
             using var wireDocument = JsonDocument.Parse(wireJson);
             var wireResult = wireDocument.RootElement.GetProperty("result");
-            var imageContent = wireResult.GetProperty("content")[0];
+            var viewLabel = wireResult.GetProperty("content")[0];
+            var imageContent = wireResult.GetProperty("content")[1];
             var structuredContent = wireResult.GetProperty("structuredContent");
+            using var wireLabelDocument = JsonDocument.Parse(viewLabel.GetProperty("text").GetString());
 
+            Assert.AreEqual("text", viewLabel.GetProperty("type").GetString());
+            Assert.AreEqual(
+                1,
+                wireLabelDocument.RootElement
+                    .GetProperty("screenshotView").GetProperty("imageNumber").GetInt32());
             Assert.AreEqual("image", imageContent.GetProperty("type").GetString());
-            Assert.AreEqual("AQIDBA==", imageContent.GetProperty("data").GetString());
+            Assert.AreEqual(imageBase64, imageContent.GetProperty("data").GetString());
             Assert.AreEqual("image/png", imageContent.GetProperty("mimeType").GetString());
             Assert.IsFalse(imageContent.TryGetProperty("text", out _));
             Assert.IsFalse(structuredContent.TryGetProperty("imageBase64", out _));
-            Assert.AreEqual(1, wireJson.Split("AQIDBA==", StringSplitOptions.None).Length - 1);
+            Assert.AreEqual(1, wireJson.Split(imageBase64, StringSplitOptions.None).Length - 1);
         }
 
         [TestMethod(DisplayName = "Verify that screenshot metadata dimensions match the returned PNG")]
@@ -293,6 +347,148 @@ namespace G4.Recorders.Uia.Domain.UnitTests
             Assert.AreEqual(decodedImage.Height, metadata["height"]);
             Assert.AreEqual(7, decodedImage.Width);
             Assert.AreEqual(3, decodedImage.Height);
+        }
+
+        [TestMethod(DisplayName = "Verify that screenshot conversion uses current recorder metrics")]
+        public void CallToolConvertsScreenshotPointUsingRecorderMetricsTest()
+        {
+            // Arrange: use the same 3000x1920 desktop shape observed in the multi-monitor grounding failure.
+            using var bitmap = new Bitmap(width: 3000, height: 1920);
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, ImageFormat.Png);
+            var recorderRepository = new StubRecorderRepository
+            {
+                Screenshot = new RecorderScreenshotModel
+                {
+                    Height = bitmap.Height,
+                    ImageBase64 = Convert.ToBase64String(stream.ToArray()),
+                    MimeType = "image/png",
+                    OriginX = -1080,
+                    OriginY = 0,
+                    Width = bitmap.Width
+                }
+            };
+            var screenshotSubject = new RecorderMcpRepository(recorderRepository);
+            using var screenshotParameters = JsonDocument.Parse(
+                "{\"name\":\"g4.GetScreenshot\",\"arguments\":{\"metricsOnly\":false}}");
+
+            // Act: capture the overview and native detail views, then convert a point on the last detail view
+            // while supplying no dimensions or transform.
+            var screenshotResponse = screenshotSubject.CallTool(screenshotParameters.RootElement, id: 7);
+            var screenshotResult = (McpToolCallResultModel)screenshotResponse.Result;
+            var screenshotMetadata = (Dictionary<string, object>)screenshotResult.StructuredContent;
+            var screenshotViews = (Dictionary<string, object>[])screenshotMetadata["views"];
+            var imageContent = screenshotResult.Content.Where(item => item.Type == "image").ToArray();
+            var conversionRequest = JsonSerializer.Serialize(new
+            {
+                name = "g4.ConvertScreenshotPoint",
+                arguments = new { imageNumber = 7, x = 999, y = 919 }
+            });
+            using var conversionParameters = JsonDocument.Parse(conversionRequest);
+            var conversionResponse = screenshotSubject.CallTool(conversionParameters.RootElement, id: 8);
+            var conversionResult = (McpToolCallResultModel)conversionResponse.Result;
+            var conversion = (Dictionary<string, object>)conversionResult.StructuredContent;
+            var sourcePixel = (Dictionary<string, object>)conversion["sourcePixel"];
+            var physicalPixel = (Dictionary<string, object>)conversion["physicalDesktopPixel"];
+
+            // Assert: one overview is followed by six native-resolution row-major detail views. The final pixel
+            // of the final detail view maps exactly to the final source and physical desktop pixel.
+            Assert.AreEqual(1000, screenshotMetadata["width"]);
+            Assert.AreEqual(640, screenshotMetadata["height"]);
+            Assert.AreEqual(7, screenshotViews.Length);
+            Assert.AreEqual(7, imageContent.Length);
+            for (var index = 0; index < screenshotViews.Length; index++)
+            {
+                var labelContent = screenshotResult.Content.ElementAt(index * 2);
+                var pairedImageContent = screenshotResult.Content.ElementAt(index * 2 + 1);
+                using var labelDocument = JsonDocument.Parse(labelContent.Text);
+
+                Assert.AreEqual("text", labelContent.Type);
+                Assert.AreEqual(
+                    index + 1,
+                    labelDocument.RootElement.GetProperty("screenshotView")
+                        .GetProperty("imageNumber").GetInt32());
+                Assert.AreEqual("image", pairedImageContent.Type);
+                Assert.AreEqual(index + 1, screenshotViews[index]["imageNumber"]);
+            }
+            Assert.AreEqual("overview", screenshotViews[0]["kind"]);
+            Assert.AreEqual("detail", screenshotViews[1]["kind"]);
+            Assert.AreEqual(0, screenshotViews[1]["column"]);
+            Assert.AreEqual(0, screenshotViews[1]["row"]);
+            Assert.AreEqual(1000, screenshotViews[1]["width"]);
+            Assert.AreEqual(1000, screenshotViews[1]["height"]);
+            Assert.AreEqual(2, screenshotViews[6]["column"]);
+            Assert.AreEqual(1, screenshotViews[6]["row"]);
+            Assert.AreEqual(1000, screenshotViews[6]["width"]);
+            Assert.AreEqual(920, screenshotViews[6]["height"]);
+            Assert.AreEqual(2999, sourcePixel["x"]);
+            Assert.AreEqual(1919, sourcePixel["y"]);
+            Assert.AreEqual(1919, physicalPixel["x"]);
+            Assert.AreEqual(1919, physicalPixel["y"]);
+            Assert.AreEqual("physical-desktop-device-pixels", conversion["coordinateSpace"]);
+            Assert.IsTrue(recorderRepository.LastScreenshotMetricsOnly);
+        }
+
+        [TestMethod(DisplayName = "Verify that the fourth presented image maps to image number four")]
+        public void CallToolMapsPresentedImageNumberWithoutOrdinalDriftTest()
+        {
+            // Arrange: reproduce the desktop geometry and local pixel from the multi-image grounding failure.
+            var subject = new RecorderMcpRepository(new StubRecorderRepository
+            {
+                Screenshot = new RecorderScreenshotModel
+                {
+                    Height = 1920,
+                    MimeType = "image/png",
+                    OriginX = -1080,
+                    OriginY = 0,
+                    Width = 3000
+                }
+            });
+            using var parameters = JsonDocument.Parse(
+                "{\"name\":\"g4.ConvertScreenshotPoint\",\"arguments\":{\"imageNumber\":4,\"x\":120,\"y\":261}}");
+
+            // Act: convert the point selected on the fourth image presented to the model.
+            var response = subject.CallTool(parameters.RootElement, id: 9);
+            var result = (McpToolCallResultModel)response.Result;
+            var conversion = (Dictionary<string, object>)result.StructuredContent;
+            var sourcePixel = (Dictionary<string, object>)conversion["sourcePixel"];
+            var physicalPixel = (Dictionary<string, object>)conversion["physicalDesktopPixel"];
+
+            // Assert: image four is the top-right detail image, not the fifth image on the lower-left monitor.
+            Assert.AreEqual(2120, sourcePixel["x"]);
+            Assert.AreEqual(261, sourcePixel["y"]);
+            Assert.AreEqual(1040, physicalPixel["x"]);
+            Assert.AreEqual(261, physicalPixel["y"]);
+        }
+
+        [TestMethod(DisplayName = "Verify that screenshot conversion rejects an unknown image number")]
+        public void CallToolRejectsUnknownScreenshotImageNumberTest()
+        {
+            // Arrange: expose metrics that deterministically produce image numbers 1-7.
+            var subject = new RecorderMcpRepository(new StubRecorderRepository
+            {
+                Screenshot = new RecorderScreenshotModel
+                {
+                    Height = 1920,
+                    MimeType = "image/png",
+                    OriginX = -1080,
+                    OriginY = 0,
+                    Width = 3000
+                }
+            });
+            using var parameters = JsonDocument.Parse(
+                "{\"name\":\"g4.ConvertScreenshotPoint\",\"arguments\":{\"imageNumber\":8,\"x\":0,\"y\":0}}");
+
+            // Act and assert: the converter cannot silently reinterpret a view selected from another layout.
+            try
+            {
+                subject.CallTool(parameters.RootElement, id: 9);
+                Assert.Fail("Expected an unknown screenshot image number to be rejected.");
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                StringAssert.Contains(exception.Message, "Image number 8");
+            }
         }
 
         [TestMethod(DisplayName = "Verify that metrics-only GetScreenshot omits image content")]
@@ -340,6 +536,8 @@ namespace G4.Recorders.Uia.Domain.UnitTests
 
             public int ResolveGroundedElementCallCount { get; private set; }
 
+            public bool LastScreenshotMetricsOnly { get; private set; }
+
             public UiaChainModel GetElementChain()
             {
                 return new UiaChainModel();
@@ -352,6 +550,8 @@ namespace G4.Recorders.Uia.Domain.UnitTests
 
             public RecorderScreenshotModel GetScreenshot(bool metricsOnly)
             {
+                LastScreenshotMetricsOnly = metricsOnly;
+
                 return Screenshot;
             }
 

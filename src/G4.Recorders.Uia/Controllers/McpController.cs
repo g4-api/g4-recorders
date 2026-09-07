@@ -17,9 +17,9 @@ namespace G4.Recorders.Uia.Controllers
 {
     [ApiController]
     [Route("/api/v4/g4/recorders/uia/mcp")]
-    [SwaggerTag(description: "Exposes the recorder's fixed 4-tool catalog (GetScreenshot, MovePointer, " +
-        "SetWindowFocus, ResolveGroundedElement) over MCP JSON-RPC, as an alternative to the equivalent REST " +
-        "endpoints on RecorderController - both call the same underlying repository, so behavior never diverges.")]
+    [SwaggerTag(description: "Exposes the recorder's fixed tool catalog (GetScreenshot, ConvertScreenshotPoint, " +
+        "MovePointer, SetWindowFocus, ResolveGroundedElement) over MCP JSON-RPC. Mechanical operations use the same " +
+        "underlying recorder repository as the REST endpoints.")]
     public class McpController(IRecorderMcpRepository repository) : ControllerBase
     {
         [HttpGet]
