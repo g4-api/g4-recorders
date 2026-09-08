@@ -1,7 +1,7 @@
 {
 	"name": "g4.GetScreenshot",
 	"title": "Capture The Virtual Desktop",
-	"description": "Captures the full virtual desktop as an MCP image content block and returns the original encoded PNG dimensions and physical desktop origin as structured content. Clients may render a scaled preview; map preview coordinates back to original image pixels before adding originX and originY for a physical recorder coordinate.",
+	"description": "Captures the virtual desktop once and returns an overview followed by native-resolution detail images. Each image is immediately preceded by metadata containing its one-based imageNumber. g4.ConvertScreenshotPoint owns all coordinate conversion; callers copy imageNumber and select a pixel but never calculate or supply geometry, scaling, origin, DPI, or physical coordinates.",
 	"inputSchema": {
 		"type": "object",
 		"properties": {
@@ -16,23 +16,58 @@
 		"properties": {
 			"width": {
 				"type": "integer",
-				"description": "Exact width in pixels of the original encoded PNG and captured virtual desktop. This is not a client-rendered preview width."
+				"description": "Exact width of the overview, or of the sole native view when no overview is needed. Informational only; g4.ConvertScreenshotPoint owns conversion."
 			},
 			"height": {
 				"type": "integer",
-				"description": "Exact height in pixels of the original encoded PNG and captured virtual desktop. This is not a client-rendered preview height."
+				"description": "Exact height of the overview, or of the sole native view when no overview is needed. Informational only; g4.ConvertScreenshotPoint owns conversion."
 			},
 			"originX": {
 				"type": "integer",
-				"description": "Physical desktop X coordinate represented by original PNG pixel x=0. After scaling a preview point to the original image grid, physicalX = originX + imagePixelX."
+				"description": "Captured virtual-desktop horizontal origin. Informational only; callers must not use it for conversion."
 			},
 			"originY": {
 				"type": "integer",
-				"description": "Physical desktop Y coordinate represented by original PNG pixel y=0. After scaling a preview point to the original image grid, physicalY = originY + imagePixelY."
+				"description": "Captured virtual-desktop vertical origin. Informational only; callers must not use it for conversion."
 			},
 			"mimeType": {
 				"type": "string",
 				"const": "image/png"
+			},
+			"views": {
+				"type": "array",
+				"description": "Metadata for each returned image content block in identical one-based imageNumber order. The same metadata immediately precedes its image. Use the overview for reasoning and a detail image for precise grounding.",
+				"items": {
+					"type": "object",
+					"properties": {
+						"imageNumber": {
+							"type": "integer",
+							"minimum": 1
+						},
+						"kind": {
+							"type": "string",
+							"enum": ["overview", "detail", "native"]
+						},
+						"width": {
+							"type": "integer",
+							"minimum": 1
+						},
+						"height": {
+							"type": "integer",
+							"minimum": 1
+						},
+						"column": {
+							"type": "integer",
+							"minimum": 0
+						},
+						"row": {
+							"type": "integer",
+							"minimum": 0
+						}
+					},
+					"required": ["imageNumber", "kind", "width", "height"],
+					"additionalProperties": false
+				}
 			}
 		},
 		"required": [
@@ -40,6 +75,7 @@
 			"height",
 			"originX",
 			"originY",
+			"views",
 			"mimeType"
 		],
 		"additionalProperties": false
