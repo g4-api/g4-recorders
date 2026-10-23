@@ -38,9 +38,9 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         [DllImport("user32.dll")]
         private static extern IntPtr GetKeyboardLayout(uint idThread);
 
-        // Copies the status of 256 virtual keys to the provided buffer.
+        // Retrieves the window that currently receives keyboard input.
         [DllImport("user32.dll")]
-        private static extern bool GetKeyboardState(byte[] lpKeyState);
+        private static extern IntPtr GetForegroundWindow();
 
         // Retrieves a human-readable key name for a virtual key / scan code combination.
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -49,6 +49,10 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         // Retrieves the status of the specified virtual key.
         [DllImport("user32.dll")]
         private static extern short GetKeyState(int nVirtKey);
+
+        // Retrieves the identifier of the thread that created the specified window.
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         // Retrieves a message from the calling thread's message queue.
         [DllImport("user32.dll", SetLastError = true)]
@@ -97,6 +101,10 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         private const int HoverMinimumResolutionIntervalMilliseconds = 50;
         private const int HoverRefreshIntervalMilliseconds = 250;
 
+        // ToUnicodeEx flag (Windows 10 1607+) that translates without changing the system keyboard state,
+        // so hook-time translation never consumes a dead key the target application is about to receive.
+        private const uint ToUnicodeKeepKeyboardState = 0x04;
+
         // Amount that the mouse wheel reports per notch (used to normalize wheel deltas)
         private const int WHEEL_DELTA = 120;
 
@@ -125,17 +133,6 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         private const int WM_RBUTTONUP = 0x0205;   // Right mouse button released
 
         private const int VK_CAPITAL = 0x14;       // Caps Lock virtual key (toggle)
-        private const int VK_CONTROL = 0x11;       // Control virtual key (generic)
-        private const int VK_LCONTROL = 0xA2;      // Left Control virtual key
-        private const int VK_LMENU = 0xA4;         // Left Alt (Menu) virtual key
-        private const int VK_LSHIFT = 0xA0;        // Left Shift virtual key
-        private const int VK_MENU = 0x12;          // Alt (Menu) virtual key (generic)
-        private const int VK_NUMLOCK = 0x90;       // Num Lock virtual key (toggle)
-        private const int VK_RCONTROL = 0xA3;      // Right Control virtual key
-        private const int VK_RMENU = 0xA5;         // Right Alt (Menu) virtual key
-        private const int VK_RSHIFT = 0xA1;        // Right Shift virtual key
-        private const int VK_SCROLL = 0x91;        // Scroll Lock virtual key (toggle)
-        private const int VK_SHIFT = 0x10;         // Shift virtual key (generic)
         #endregion
 
         #region *** Delegates    ***
@@ -186,6 +183,9 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         // Atomically publishes session-owned focus chains to the low-level keyboard hook.
         private readonly KeyboardFocusSnapshotStore _keyboardFocusSnapshotStore = new();
 
+        // Modifier keys held at capture time, maintained by the low-level keyboard hook thread only.
+        private readonly KeyboardModifierState _modifierState = new();
+
         // Logger for diagnostics, error reporting, and lifecycle information.
         private readonly ILogger<UiaEventCaptureService> _logger;
 
@@ -212,6 +212,9 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         private readonly MouseTargetSnapshotStore _mouseTargetSnapshotStore = new(
             maximumAgeMilliseconds: HoverMaximumAgeMilliseconds,
             boundsTolerancePixels: HoverBoundsTolerancePixels);
+
+        // Shared queue counters that let a recorder client flush captured events before it stops.
+        private readonly RecorderEventQueueState _queueState = RecorderEventQueueState.Instance;
 
         // Repository used to resolve the current UI element chain at the time of an event.
         private readonly IUiaRecorderRepository _repository;
@@ -375,6 +378,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             // physical press (for example Cancel), even when this key then closes the dialog. Only Down
             // needs it; Up pairs to the retained Down target.
             var isKeyDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
+            var isKeyUp = wParam == WM_KEYUP || wParam == WM_SYSKEYUP;
 
             if (isKeyDown)
             {
@@ -382,12 +386,34 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                     eventRecord.SessionGenerationAtCapture);
             }
 
+            // Resolve text and shortcut modifiers now, while the captured modifier state still matches the
+            // press. The worker can run hundreds of milliseconds later, after Shift or Ctrl were released.
+            var isKeyMessage = nCode >= 0 && (isKeyDown || isKeyUp);
+            var isFocusMoving = true;
+
+            if (isKeyMessage)
+            {
+                SetKeyInput(ref eventRecord, key, isKeyDown);
+                isFocusMoving = eventRecord.IsFocusMoving;
+            }
+
+            // Count the event before it becomes visible to the worker so a flush never misses it.
+            _queueState.AddEnqueued();
+
             // Enqueue the event for processing in the background task.
             _eventsQueue.Enqueue(eventRecord);
 
-            // Mark focus as possibly changed (navigation keys move focus) so the worker refreshes the
-            // snapshot for the next press.
-            SetFocusObservation();
+            // Navigation keys and shortcuts can move focus, so they invalidate in-flight focus lookups.
+            // Typed characters only request a refresh: invalidating on every character starved the
+            // snapshot during continuous typing after a focus notification cleared it.
+            if (isFocusMoving)
+            {
+                SetFocusObservation();
+            }
+            else
+            {
+                RequestFocusRefresh();
+            }
 
             // Signal the background task that a new event is available.
             _signal.Set();
@@ -443,6 +469,9 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 eventRecord.MouseSnapshotAgeMilliseconds = snapshotResolution.AgeMilliseconds;
                 eventRecord.MouseSnapshotStatus = snapshotResolution.Status;
             }
+
+            // Count the event before it becomes visible to the worker so a flush never misses it.
+            _queueState.AddEnqueued();
 
             // Enqueue the event for processing in the background task.
             _eventsQueue.Enqueue(eventRecord);
@@ -559,6 +588,23 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             _signal.Set();
         }
 
+        // Requests a focus refresh without invalidating a lookup already in progress. Used for typed characters,
+        // which cannot move focus, so a lookup started before them still describes the element they reach.
+        private void RequestFocusRefresh()
+        {
+            // Skip when no active session can consume a snapshot.
+            if (!_connectionState.CaptureActive)
+            {
+                return;
+            }
+
+            // Request one refresh on the next worker iteration while keeping the observation generation.
+            Interlocked.Exchange(ref _isFocusPending, 1);
+
+            // Wake the worker so a snapshot cleared by a focus notification is republished promptly.
+            _signal.Set();
+        }
+
         // Invalidates the last publication after UI Automation reports a real focus transition, then
         // schedules resolution of the new target outside the COM callback and low-level hook threads.
         private void SetFocusChangedObservation()
@@ -648,24 +694,20 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             _keyboardFocusSnapshotStore.Set(chain, sessionGeneration);
         }
 
-        // Resolves a human-readable string for a given keyboard event.
-        // Attempts to produce the actual typed character (layout-aware), and if not
-        // possible, falls back to a key name (localized or VK-based).
-        private static string ResolveKeyName(in KeyboardHook keyboard)
+        // Resolves the display text for a keyboard event from the character it typed at capture time.
+        // A visible glyph is returned as typed; otherwise the key name (localized or VK-based) is used.
+        private static string ResolveKeyName(in KeyboardHook keyboard, string typedText)
         {
-            // Try to resolve the typed character (respects Shift, CapsLock, current layout).
-            var typed = ConvertToChar(keyboard);
-
             // If we got a visible character, return it directly.
-            if (!string.IsNullOrEmpty(typed))
+            if (!string.IsNullOrEmpty(typedText))
             {
                 // Look at the first char to filter out control or whitespace.
-                char c = typed[0];
+                char c = typedText[0];
 
                 // If it's a visible, non-control glyph (e.g., 'a', 'A', '!'), return it directly.
                 if (!char.IsControl(c) && c != ' ')
                 {
-                    return typed;
+                    return typedText;
                 }
             }
 
@@ -676,6 +718,38 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             return string.Equals(name, "Space", StringComparison.OrdinalIgnoreCase)
                 ? "space"
                 : name;
+        }
+
+        // Resolves text, shortcut modifiers, and focus impact for one key transition on the hook thread.
+        // Modifier keys update the captured state first, so the state reflects the press order the
+        // application received. Shortcuts carry the key name ("A", "F4"), never a control character.
+        private void SetKeyInput(ref EventRecord eventRecord, in KeyboardHook keyboard, bool isKeyDown)
+        {
+            // Track modifier transitions from the event stream itself, before translating this key.
+            var isModifierKey = KeyboardModifierState.TestModifierKey(keyboard.vkCode);
+
+            if (isModifierKey)
+            {
+                _modifierState.Update(keyboard.vkCode, isKeyDown);
+            }
+
+            // Translate with the captured modifiers, the hook-time Caps Lock toggle, and the foreground layout.
+            var isCapsLockOn = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
+            var keyboardState = _modifierState.NewKeyboardState(isCapsLockOn);
+            var typedText = ConvertToChar(keyboard, keyboardState);
+
+            // Standalone modifiers are never shortcuts; a release carries no chord of its own.
+            var modifiers = isModifierKey || !isKeyDown
+                ? []
+                : KeyboardKeyClassifier.ResolveShortcutModifiers(_modifierState, typedText);
+            var isShortcut = modifiers.Length > 0;
+
+            // Publish the resolved input on the record; shortcuts use the key name instead of the glyph.
+            eventRecord.KeyText = isShortcut
+                ? GetKeyName(keyboard)
+                : ResolveKeyName(keyboard, typedText);
+            eventRecord.Modifiers = modifiers;
+            eventRecord.IsFocusMoving = KeyboardKeyClassifier.TestFocusMovingKey(keyboard.vkCode, isShortcut);
         }
 
         // Processes a captured keyboard event record, builds a structured event model,
@@ -716,9 +790,13 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             // Resolve the first press or consume its retained state according to the native transition.
             if (isKeyDown)
             {
-                // Resolve display text once so repeat and release events remain consistent with the first press.
-                var keyText = ResolveKeyName(keyboard);
-                targetResolution = _keyboardTargetResolver.ResolveDown(identity, keyText, eventRecord.CapturedKeyboardTarget);
+                // Retain the hook-time text and modifiers so repeat and release events match the first press.
+                targetResolution = _keyboardTargetResolver.ResolveDown(
+                    identity,
+                    eventRecord.KeyText,
+                    eventRecord.Modifiers,
+                    eventRecord.CapturedKeyboardTarget,
+                    eventRecord.IsFocusMoving);
             }
             else
             {
@@ -726,7 +804,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 targetResolution = _keyboardTargetResolver.ResolveUp(identity);
             }
 
-            // Report missing pre-dispatch focus explicitly instead of silently assigning a post-key destination.
+            // Report a press that stayed untargeted; the event is still broadcast so clients keep the input.
             if (targetResolution.Source == KeyboardTargetSource.MissingSnapshot)
             {
                 _logger.LogWarning(
@@ -737,23 +815,26 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                     identity.Extended);
             }
 
-            // Preserve key-name fallback for sessions that begin after the physical press.
+            // Preserve the hook-time text for sessions that begin after the physical press.
             var isOrphanedRelease = targetResolution.Source == KeyboardTargetSource.OrphanFallback;
             var resolvedKeyText = isOrphanedRelease
-                ? ResolveKeyName(keyboard)
+                ? eventRecord.KeyText
                 : targetResolution.KeyText;
 
             // Report the internal resolution path without extending the recorder event contract.
-            _logger.LogDebug(
-                "Resolved keyboard {Transition} from {Source}; VirtualKey: {VirtualKey}, ScanCode: {ScanCode}, " +
-                "Extended: {Extended}, Locator: {Locator}, PathCount: {PathCount}.",
-                isKeyDown ? "Down" : "Up",
-                targetResolution.Source,
-                identity.VirtualKey,
-                identity.ScanCode,
-                identity.Extended,
-                targetResolution.Chain?.Locator,
-                targetResolution.Chain?.Path?.Count ?? 0);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(
+                    "Resolved keyboard {Transition} from {Source}; VirtualKey: {VirtualKey}, ScanCode: {ScanCode}, " +
+                    "Extended: {Extended}, Locator: {Locator}, PathCount: {PathCount}.",
+                    isKeyDown ? "Down" : "Up",
+                    targetResolution.Source,
+                    identity.VirtualKey,
+                    identity.ScanCode,
+                    identity.Extended,
+                    targetResolution.Chain?.Locator,
+                    targetResolution.Chain?.Path?.Count ?? 0);
+            }
 
             // Build a structured event model with context.
             var message = new UiaEventModel
@@ -766,7 +847,9 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 {
                     ScanCode = keyboard.scanCode,
                     VirtualKey = keyboard.vkCode,
-                    Key = resolvedKeyText
+                    Key = resolvedKeyText,
+                    Modifiers = targetResolution.Modifiers ?? [],
+                    TargetSource = targetResolution.Source.ToString()
                 }
             };
 
@@ -922,29 +1005,32 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             });
 
             // Report the target source and timing without changing the external recording-event contract.
-            if (hasPreClickTarget)
+            if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug(
-                    "Resolved {Button} mouse press from HoverSnapshot at ({X}, {Y}); " +
-                    "SnapshotAgeMs: {SnapshotAgeMs:F1}, QueueDelayMs: {QueueDelayMs}, Locator: {Locator}.",
-                    button,
-                    mouse.pt.X,
-                    mouse.pt.Y,
-                    eventRecord.MouseSnapshotAgeMilliseconds,
-                    queueDelayMilliseconds,
-                    chain?.Locator);
-            }
-            else
-            {
-                _logger.LogDebug(
-                    "Resolved {Button} mouse press from DownWorkerFallback at ({X}, {Y}); " +
-                    "SnapshotStatus: {SnapshotStatus}, QueueDelayMs: {QueueDelayMs}, Locator: {Locator}.",
-                    button,
-                    mouse.pt.X,
-                    mouse.pt.Y,
-                    eventRecord.MouseSnapshotStatus,
-                    queueDelayMilliseconds,
-                    chain?.Locator);
+                if (hasPreClickTarget)
+                {
+                    _logger.LogDebug(
+                        "Resolved {Button} mouse press from HoverSnapshot at ({X}, {Y}); " +
+                        "SnapshotAgeMs: {SnapshotAgeMs:F1}, QueueDelayMs: {QueueDelayMs}, Locator: {Locator}.",
+                        button,
+                        mouse.pt.X,
+                        mouse.pt.Y,
+                        eventRecord.MouseSnapshotAgeMilliseconds,
+                        queueDelayMilliseconds,
+                        chain?.Locator);
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "Resolved {Button} mouse press from DownWorkerFallback at ({X}, {Y}); " +
+                        "SnapshotStatus: {SnapshotStatus}, QueueDelayMs: {QueueDelayMs}, Locator: {Locator}.",
+                        button,
+                        mouse.pt.X,
+                        mouse.pt.Y,
+                        eventRecord.MouseSnapshotStatus,
+                        queueDelayMilliseconds,
+                        chain?.Locator);
+                }
             }
 
             return chain;
@@ -957,93 +1043,38 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             var resolution = _mouseTargetResolver.ResolveUp(button, x, y);
 
             // Surface incomplete pairs without dropping the release event.
-            if (resolution.UsedFallback)
+            if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug(
-                    "Resolved orphaned {Button} mouse release from coordinates ({X}, {Y}).",
-                    button,
-                    x,
-                    y);
-            }
-            else
-            {
-                _logger.LogDebug(
-                    "Resolved {Button} mouse release from PairedRelease at ({X}, {Y}); Locator: {Locator}.",
-                    button,
-                    x,
-                    y,
-                    resolution.Chain?.Locator);
+                if (resolution.UsedFallback)
+                {
+                    _logger.LogDebug(
+                        "Resolved orphaned {Button} mouse release from coordinates ({X}, {Y}).",
+                        button,
+                        x,
+                        y);
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "Resolved {Button} mouse release from PairedRelease at ({X}, {Y}); Locator: {Locator}.",
+                        button,
+                        x,
+                        y,
+                        resolution.Chain?.Locator);
+                }
             }
 
             return resolution.Chain;
         }
 
-        // Converts the current key press described by a low-level keyboard hook struct
-        // into the *typed* character string, honoring Shift/CapsLock and the *current* keyboard layout.
-        private static string ConvertToChar(KeyboardHook keyboard)
+        // Converts a key press into the *typed* character string using the keyboard state captured for the
+        // event (modifiers and Caps Lock) and the keyboard layout of the foreground window's thread.
+        private static string ConvertToChar(KeyboardHook keyboard, byte[] keyboardState)
         {
-            // Helper: ensure the "pressed" (high bit) state matches the actual key state
-            // so that ToUnicodeEx can compute the correct character with modifiers applied.
-            static void SetKeyStateBit(byte[] keyboardState, int virtualKey)
-            {
-                // Get the real-time key state for this virtual key.
-                var state = GetKeyState(virtualKey);
-
-                // High bit (0x80) indicates key is currently down
-                if ((state & 0x8000) != 0)
-                {
-                    keyboardState[virtualKey] |= 0x80;
-                }
-                else
-                {
-                    keyboardState[virtualKey] &= 0x7F;
-                }
-            }
-
-            // Helper: ensure the "toggle" (low bit) state (e.g., CapsLock/NumLock) matches reality.
-            static void SetToggleBit(byte[] keyboardState, int virtualKey)
-            {
-                // Get the real-time key state for this virtual key.
-                var state = GetKeyState(virtualKey);
-
-                // Low bit (0x01) indicates toggled ON
-                if ((state & 0x0001) != 0)
-                {
-                    // toggled on (e.g., CapsLock)
-                    keyboardState[virtualKey] |= 0x01;
-                }
-                else
-                {
-                    // toggled off
-                    keyboardState[virtualKey] &= 0xFE;
-                }
-            }
-
-            // Capture full keyboard state (256 entries) as the base snapshot.
-            // This pulls per-virtual-key flags that ToUnicodeEx uses for translation.
-            var keyboardState = new byte[256];
-            GetKeyboardState(keyboardState);
-
-            // Explicitly refresh modifier keys in this thread context to avoid stale flags.
-            // (The hook thread may not share the same implicit state as the foreground thread.)
-            SetKeyStateBit(keyboardState, VK_SHIFT);
-            SetKeyStateBit(keyboardState, VK_LSHIFT);
-            SetKeyStateBit(keyboardState, VK_RSHIFT);
-            SetKeyStateBit(keyboardState, VK_CONTROL);
-            SetKeyStateBit(keyboardState, VK_LCONTROL);
-            SetKeyStateBit(keyboardState, VK_RCONTROL);
-            SetKeyStateBit(keyboardState, VK_MENU);
-            SetKeyStateBit(keyboardState, VK_LMENU);
-            SetKeyStateBit(keyboardState, VK_RMENU);
-
-            // Ensure toggles (Caps/Num/Scroll) are correct for this translation.
-            SetToggleBit(keyboardState, VK_CAPITAL);
-            SetToggleBit(keyboardState, VK_NUMLOCK);
-            SetToggleBit(keyboardState, VK_SCROLL);
-
-            // Translate using the *current* active layout for thread 0 (foreground).
+            // Translate with the layout of the window receiving the input, not the hook thread's own layout.
             var stringBuilder = new StringBuilder(8);
-            var layout = GetKeyboardLayout(0);
+            var foregroundThreadId = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+            var layout = GetKeyboardLayout(foregroundThreadId);
 
             // ToUnicodeEx returns:
             //  > 0 : number of UTF-16 code units written
@@ -1055,7 +1086,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 keyboardState,
                 stringBuilder,
                 stringBuilder.Capacity,
-                0, // flags: 0 => regular behavior (no menu-accelerator translation)
+                ToUnicodeKeepKeyboardState,
                 layout);
 
             if (rc > 0)
@@ -1321,11 +1352,14 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             {
                 // Isolate transient provider failures so later pointer observations remain serviceable.
                 _lastHoverResolutionTimestamp = Stopwatch.GetTimestamp();
-                _logger.LogDebug(
-                    exception,
-                    "Skipped hover target resolution at ({X}, {Y}).",
-                    pointBeforeResolution.X,
-                    pointBeforeResolution.Y);
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(
+                        exception,
+                        "Skipped hover target resolution at ({X}, {Y}).",
+                        pointBeforeResolution.X,
+                        pointBeforeResolution.Y);
+                }
                 return;
             }
 
@@ -1369,10 +1403,13 @@ namespace G4.Recorders.Uia.Domain.Middlewares
 
             if (!hasValidBounds || !hasLocator)
             {
-                _logger.LogTrace(
-                    "Ignored incomplete hover target at ({X}, {Y}); locator or trigger bounds were unavailable.",
-                    pointBeforeResolution.X,
-                    pointBeforeResolution.Y);
+                if (_logger.IsEnabled(LogLevel.Trace))
+                {
+                    _logger.LogTrace(
+                        "Ignored incomplete hover target at ({X}, {Y}); locator or trigger bounds were unavailable.",
+                        pointBeforeResolution.X,
+                        pointBeforeResolution.Y);
+                }
                 return;
             }
 
@@ -1434,7 +1471,10 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                             else
                             {
                                 // Unknown/unsupported event type—log at Debug/Information based on policy.
-                                _logger.LogDebug("Ignored event with unsupported type: {Type}", eventRecord.EventType);
+                                if (_logger.IsEnabled(LogLevel.Debug))
+                                {
+                                    _logger.LogDebug("Ignored event with unsupported type: {Type}", eventRecord.EventType);
+                                }
                             }
                         }
                         catch (UnauthorizedAccessException e)
@@ -1449,9 +1489,12 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                         {
                             // Transient UIA failure: the target provider couldn't service the
                             // request (window closing/redrawing). Expected during live tracking; skip it.
-                            _logger.LogDebug(e,
-                                "Skipped event; UI Automation could not resolve the element (transient). Type: {Type}, Timestamp: {Ts}",
-                                eventRecord.EventType, eventRecord.Timestamp);
+                            if (_logger.IsEnabled(LogLevel.Debug))
+                            {
+                                _logger.LogDebug(e,
+                                    "Skipped event; UI Automation could not resolve the element (transient). Type: {Type}, Timestamp: {Ts}",
+                                    eventRecord.EventType, eventRecord.Timestamp);
+                            }
                         }
                         catch (Exception e)
                         {
@@ -1460,6 +1503,17 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                                 "Failed to resolve event. Type: {Type}, Timestamp: {Ts}",
                                 eventRecord.EventType, eventRecord.Timestamp);
                         }
+                        finally
+                        {
+                            // Count every handled event, skipped or failed included, so a flush can complete.
+                            _queueState.AddProcessed();
+                        }
+                    }
+
+                    // Keep input first: when more events arrived while draining, service them before UIA work.
+                    if (!_eventsQueue.IsEmpty)
+                    {
+                        continue;
                     }
 
                     // Resolve at most one coalesced hover observation after all real input events are serviced.
@@ -1695,6 +1749,21 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             /// Down and its paired Up bound to the same session across a live-state change.
             /// </summary>
             public long SessionGenerationAtCapture;
+
+            /// <summary>
+            /// Whether the key press can move focus (navigation keys and shortcuts), resolved by the hook.
+            /// </summary>
+            public bool IsFocusMoving;
+
+            /// <summary>
+            /// The display text resolved by the hook with the modifier state captured for this event.
+            /// </summary>
+            public string KeyText;
+
+            /// <summary>
+            /// The shortcut modifiers resolved by the hook for a key press; empty for typed text and releases.
+            /// </summary>
+            public string[] Modifiers;
 
             /// <summary>
             /// The raw data associated with the event.
