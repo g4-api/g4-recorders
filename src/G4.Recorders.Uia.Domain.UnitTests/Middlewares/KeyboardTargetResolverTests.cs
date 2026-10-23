@@ -2,6 +2,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 using G4.Recorders.Common.Domain.Models;
 
@@ -15,6 +16,9 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
     [TestCategory("UnitTest")]
     public sealed class KeyboardTargetResolverTests
     {
+        // Expected chord retained from a Ctrl+A press.
+        private static readonly string[] s_control = ["Ctrl"];
+
         [TestMethod(DisplayName = "Verify that clearing retained keyboard state restores focused fallback")]
         public void KeyboardTargetClearRestoresFallbackTest()
         {
@@ -24,7 +28,12 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             var repository = new FakeUiaRecorderRepository(fallbackChain);
             var resolver = new KeyboardTargetResolver(repository);
             var identity = NewIdentity(virtualKey: 13, scanCode: 28, extended: false);
-            resolver.ResolveDown(identity, keyText: "Enter", capturedChain: pressedChain);
+            resolver.ResolveDown(
+                identity,
+                keyText: "Enter",
+                modifiers: [],
+                capturedChain: pressedChain,
+                isFocusMoving: true);
 
             // Act: clear lifecycle state before resolving the matching physical release.
             resolver.Clear();
@@ -48,8 +57,18 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             var extendedIdentity = NewIdentity(virtualKey: 13, scanCode: 28, extended: true);
 
             // Act: retain and release both physical identities independently.
-            resolver.ResolveDown(standardIdentity, keyText: "Enter", capturedChain: standardChain);
-            resolver.ResolveDown(extendedIdentity, keyText: "Num Enter", capturedChain: extendedChain);
+            resolver.ResolveDown(
+                standardIdentity,
+                keyText: "Enter",
+                modifiers: [],
+                capturedChain: standardChain,
+                isFocusMoving: true);
+            resolver.ResolveDown(
+                extendedIdentity,
+                keyText: "Num Enter",
+                modifiers: [],
+                capturedChain: extendedChain,
+                isFocusMoving: true);
             var extendedRelease = resolver.ResolveUp(extendedIdentity);
             var standardRelease = resolver.ResolveUp(standardIdentity);
 
@@ -71,8 +90,18 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             var tabIdentity = NewIdentity(virtualKey: 9, scanCode: 15, extended: false);
 
             // Act: press both keys and release them in reverse order.
-            resolver.ResolveDown(enterIdentity, keyText: "Enter", capturedChain: enterChain);
-            resolver.ResolveDown(tabIdentity, keyText: "Tab", capturedChain: tabChain);
+            resolver.ResolveDown(
+                enterIdentity,
+                keyText: "Enter",
+                modifiers: [],
+                capturedChain: enterChain,
+                isFocusMoving: true);
+            resolver.ResolveDown(
+                tabIdentity,
+                keyText: "Tab",
+                modifiers: [],
+                capturedChain: tabChain,
+                isFocusMoving: true);
             var tabRelease = resolver.ResolveUp(tabIdentity);
             var enterRelease = resolver.ResolveUp(enterIdentity);
 
@@ -113,13 +142,18 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             var identity = NewIdentity(virtualKey: 27, scanCode: 1, extended: false);
 
             // Act: resolve the Down and Up transitions around the dialog-closing key action.
-            var downResolution = resolver.ResolveDown(identity, keyText: "Escape", capturedChain: cancelChain);
+            var downResolution = resolver.ResolveDown(
+                identity,
+                keyText: "Escape",
+                modifiers: [],
+                capturedChain: cancelChain,
+                isFocusMoving: true);
             var upResolution = resolver.ResolveUp(identity);
 
             // Assert: verify that Up retains Cancel without performing the empty post-dialog lookup.
             Assert.AreSame(cancelChain, downResolution.Chain);
             Assert.AreSame(cancelChain, upResolution.Chain);
-            Assert.AreEqual(1, upResolution.Chain.Path.Count);
+            Assert.HasCount(expected: 1, collection: upResolution.Chain.Path);
             Assert.AreEqual("Escape", upResolution.KeyText);
             Assert.AreEqual(KeyboardTargetSource.PairedRelease, upResolution.Source);
             Assert.AreEqual(0, repository.FocusPeekCount);
@@ -134,7 +168,12 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             var repository = new FakeUiaRecorderRepository(fallbackChain);
             var resolver = new KeyboardTargetResolver(repository);
             var identity = NewIdentity(virtualKey: 13, scanCode: 28, extended: false);
-            resolver.ResolveDown(identity, keyText: "Enter", capturedChain: pressedChain);
+            resolver.ResolveDown(
+                identity,
+                keyText: "Enter",
+                modifiers: [],
+                capturedChain: pressedChain,
+                isFocusMoving: true);
 
             // Act: resolve two Up transitions for one retained physical press.
             var pairedRelease = resolver.ResolveUp(identity);
@@ -158,8 +197,18 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             var identity = NewIdentity(virtualKey: 9, scanCode: 15, extended: false);
 
             // Act: deliver auto-repeat Down before the single physical Up transition.
-            var firstDown = resolver.ResolveDown(identity, keyText: "Tab", capturedChain: firstChain);
-            var repeatedDown = resolver.ResolveDown(identity, keyText: "Changed", capturedChain: null);
+            var firstDown = resolver.ResolveDown(
+                identity,
+                keyText: "Tab",
+                modifiers: [],
+                capturedChain: firstChain,
+                isFocusMoving: true);
+            var repeatedDown = resolver.ResolveDown(
+                identity,
+                keyText: "Changed",
+                modifiers: [],
+                capturedChain: null,
+                isFocusMoving: true);
             var release = resolver.ResolveUp(identity);
 
             // Assert: verify that repeats cannot replace the original target or its text.
@@ -182,7 +231,12 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             var identity = NewIdentity(virtualKey: 9, scanCode: 15, extended: false);
 
             // Act: resolve both transitions without a pre-dispatch snapshot.
-            var downResolution = resolver.ResolveDown(identity, keyText: "Tab", capturedChain: null);
+            var downResolution = resolver.ResolveDown(
+                identity,
+                keyText: "Tab",
+                modifiers: [],
+                capturedChain: null,
+                isFocusMoving: true);
             var upResolution = resolver.ResolveUp(identity);
 
             // Assert: verify that neither transition adopts the later focused destination.
@@ -191,6 +245,76 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             Assert.AreEqual(KeyboardTargetSource.MissingSnapshot, downResolution.Source);
             Assert.AreEqual(KeyboardTargetSource.PairedRelease, upResolution.Source);
             Assert.AreEqual(0, repository.FocusPeekCount);
+        }
+
+        [TestMethod(DisplayName = "Verify that a typed character without a snapshot falls back to the focused element")]
+        public void KeyboardTargetTypedCharacterFallbackTest()
+        {
+            // Arrange: model an edit box whose snapshot was cleared by a re-raised focus notification.
+            var editChain = NewChain("file-name");
+            var repository = new FakeUiaRecorderRepository(editChain);
+            var resolver = new KeyboardTargetResolver(repository);
+            var identity = NewIdentity(virtualKey: 0x4D, scanCode: 50, extended: false);
+
+            // Act: resolve a character key that cannot move focus, then its release.
+            var down = resolver.ResolveDown(
+                identity,
+                keyText: "m",
+                modifiers: [],
+                capturedChain: null,
+                isFocusMoving: false);
+            var up = resolver.ResolveUp(identity);
+
+            // Assert: verify that both transitions target the focused edit box through one lookup.
+            Assert.AreSame(expected: editChain, actual: down.Chain);
+            Assert.AreSame(expected: editChain, actual: up.Chain);
+            Assert.AreEqual(expected: KeyboardTargetSource.FocusFallback, actual: down.Source);
+            Assert.AreEqual(expected: 1, actual: repository.FocusPeekCount);
+        }
+
+        [TestMethod(DisplayName = "Verify that a focus lookup failure leaves the typed character untargeted")]
+        public void KeyboardTargetFallbackFailureTest()
+        {
+            // Arrange: make the focused lookup fail the way a closing provider does.
+            var repository = new FakeUiaRecorderRepository { FocusFailure = new COMException("Provider gone.") };
+            var resolver = new KeyboardTargetResolver(repository);
+            var identity = NewIdentity(virtualKey: 0x4D, scanCode: 50, extended: false);
+
+            // Act: resolve a character key without a snapshot.
+            var down = resolver.ResolveDown(
+                identity,
+                keyText: "m",
+                modifiers: [],
+                capturedChain: null,
+                isFocusMoving: false);
+
+            // Assert: verify that the key is kept, untargeted, instead of failing.
+            Assert.IsNull(value: down.Chain);
+            Assert.AreEqual(expected: "m", actual: down.KeyText);
+            Assert.AreEqual(expected: KeyboardTargetSource.MissingSnapshot, actual: down.Source);
+        }
+
+        [TestMethod(DisplayName = "Verify that shortcut modifiers are retained from press to release")]
+        public void KeyboardTargetModifiersRetainedTest()
+        {
+            // Arrange: capture Ctrl+A on an edit box.
+            var editChain = NewChain("edit");
+            var repository = new FakeUiaRecorderRepository();
+            var resolver = new KeyboardTargetResolver(repository);
+            var identity = NewIdentity(virtualKey: 0x41, scanCode: 30, extended: false);
+
+            // Act: resolve the press with its chord, then the release.
+            resolver.ResolveDown(
+                identity,
+                keyText: "A",
+                modifiers: ["Ctrl"],
+                capturedChain: editChain,
+                isFocusMoving: true);
+            var up = resolver.ResolveUp(identity);
+
+            // Assert: verify that the release carries the chord captured on the press.
+            Assert.AreSequenceEqual(expected: s_control, actual: up.Modifiers);
+            Assert.AreEqual(expected: "A", actual: up.KeyText);
         }
 
         [TestMethod(DisplayName = "Verify that successive navigation keys retain each pre-dispatch focus target")]
@@ -206,11 +330,26 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             var enterIdentity = NewIdentity(virtualKey: 13, scanCode: 28, extended: true);
 
             // Act: resolve each physical press from the focus snapshot published before its own effect.
-            var firstTab = resolver.ResolveDown(tabIdentity, keyText: "Tab", capturedChain: lineNumberChain);
+            var firstTab = resolver.ResolveDown(
+                tabIdentity,
+                keyText: "Tab",
+                modifiers: [],
+                capturedChain: lineNumberChain,
+                isFocusMoving: true);
             resolver.ResolveUp(tabIdentity);
-            var secondTab = resolver.ResolveDown(tabIdentity, keyText: "Tab", capturedChain: goToChain);
+            var secondTab = resolver.ResolveDown(
+                tabIdentity,
+                keyText: "Tab",
+                modifiers: [],
+                capturedChain: goToChain,
+                isFocusMoving: true);
             resolver.ResolveUp(tabIdentity);
-            var enter = resolver.ResolveDown(enterIdentity, keyText: "Num Enter", capturedChain: cancelChain);
+            var enter = resolver.ResolveDown(
+                enterIdentity,
+                keyText: "Num Enter",
+                modifiers: [],
+                capturedChain: cancelChain,
+                isFocusMoving: true);
             resolver.ResolveUp(enterIdentity);
 
             // Assert: verify that the recorded actions target the elements that received each key.
@@ -247,6 +386,8 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
 
             internal int FocusPeekCount { get; private set; }
 
+            internal Exception FocusFailure { get; init; }
+
             public RecorderScreenshotModel GetScreenshot(bool metricsOnly)
             {
                 throw new InvalidOperationException("Screen capture is not part of keyboard target tests.");
@@ -261,6 +402,12 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             {
                 // Count focused lookups so paired and repeated transitions prove they avoid extra UIA work.
                 FocusPeekCount++;
+
+                // Simulate a provider failure when the test requests one.
+                if (FocusFailure != null)
+                {
+                    throw FocusFailure;
+                }
 
                 // Fail deterministically when a test exercises an unexpected lookup path.
                 if (_focusChains.Count == 0)

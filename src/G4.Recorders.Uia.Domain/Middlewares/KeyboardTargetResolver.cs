@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 using G4.Recorders.Uia.Domain.Models;
 
@@ -56,14 +57,20 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         /// </summary>
         /// <param name="identity">The stable physical-key identity shared by Down and Up.</param>
         /// <param name="keyText">The display text resolved for the first press.</param>
+        /// <param name="modifiers">The shortcut modifiers captured with the first press; empty for typed text.</param>
         /// <param name="capturedChain">The pre-press focus snapshot captured before this key's own
-        /// effect changed focus. A missing snapshot remains unresolved because a later focused lookup
-        /// can observe the element that received the key's effect instead of its input.</param>
+        /// effect changed focus.</param>
+        /// <param name="isFocusMoving">A value indicating whether the key can move focus. A missing snapshot
+        /// for such a key remains unresolved because a later focused lookup can observe the element that
+        /// received the key's effect instead of its input. A key that cannot move focus falls back to the
+        /// element focused when the press is processed, which is still the element that received it.</param>
         /// <returns>The retained keyboard target and its resolution source.</returns>
         internal KeyboardTargetResolution ResolveDown(
             KeyboardKeyIdentity identity,
             string keyText,
-            UiaChainModel capturedChain)
+            string[] modifiers,
+            UiaChainModel capturedChain,
+            bool isFocusMoving)
         {
             // Serialize lookup and publication so lifecycle cleanup cannot retain a partially resolved press.
             lock (_syncRoot)
@@ -74,10 +81,11 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                     return new KeyboardTargetResolution(
                         retainedState.Chain,
                         retainedState.KeyText,
+                        retainedState.Modifiers,
                         KeyboardTargetSource.RepeatedPress);
                 }
 
-                // Select only the pre-dispatch focus snapshot so navigation cannot bind the press to its destination.
+                // Prefer the pre-dispatch focus snapshot so navigation cannot bind the press to its destination.
                 var hasCapturedChain = capturedChain?.Path?.Count > 0;
                 var chain = hasCapturedChain
                     ? capturedChain
@@ -86,16 +94,27 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                     ? KeyboardTargetSource.CapturedSnapshot
                     : KeyboardTargetSource.MissingSnapshot;
 
+                // Recover typed text whose snapshot was invalidated by a focus notification (for example an
+                // autocomplete list re-raising focus on the same edit box); the recipient has not changed.
+                if (!hasCapturedChain && !isFocusMoving)
+                {
+                    var focusedChain = GetFocusedChain(_repository);
+                    var hasFocusedChain = focusedChain?.Path?.Count > 0;
+                    chain = hasFocusedChain ? focusedChain : null;
+                    source = hasFocusedChain ? KeyboardTargetSource.FocusFallback : source;
+                }
+
                 var pressState = new KeyboardPressState
                 {
                     Chain = chain,
-                    KeyText = keyText
+                    KeyText = keyText,
+                    Modifiers = modifiers ?? []
                 };
 
-                // Publish the complete state only after both target and text have been materialized.
+                // Publish the complete state only after target, text, and modifiers have been materialized.
                 _pressedTargets.Add(identity, pressState);
 
-                return new KeyboardTargetResolution(chain, keyText, source);
+                return new KeyboardTargetResolution(chain, keyText, pressState.Modifiers, source);
             }
         }
 
@@ -114,6 +133,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                     return new KeyboardTargetResolution(
                         retainedState.Chain,
                         retainedState.KeyText,
+                        retainedState.Modifiers,
                         KeyboardTargetSource.PairedRelease);
                 }
 
@@ -123,7 +143,24 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 return new KeyboardTargetResolution(
                     fallbackChain,
                     keyText: string.Empty,
+                    modifiers: [],
                     KeyboardTargetSource.OrphanFallback);
+            }
+        }
+
+        // Reads the currently focused chain for a non-navigating press whose snapshot is missing.
+        // Provider failures resolve to null so the key is still recorded, without a target, instead of lost.
+        private static UiaChainModel GetFocusedChain(IUiaRecorderRepository repository)
+        {
+            try
+            {
+                // Resolve on the worker thread; the low-level hook never reaches this lookup.
+                return repository.GetElementChain();
+            }
+            catch (Exception exception) when (exception is COMException or UnauthorizedAccessException)
+            {
+                // Transient provider and elevated-window failures leave the press untargeted.
+                return null;
             }
         }
         #endregion
@@ -134,6 +171,8 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             internal UiaChainModel Chain { get; init; }
 
             internal string KeyText { get; init; }
+
+            internal string[] Modifiers { get; init; }
         }
         #endregion
     }
@@ -182,6 +221,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
     internal enum KeyboardTargetSource
     {
         CapturedSnapshot,
+        FocusFallback,
         MissingSnapshot,
         OrphanFallback,
         PairedRelease,
@@ -199,11 +239,17 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         /// </summary>
         /// <param name="chain">The resolved UI Automation target chain.</param>
         /// <param name="keyText">The key text retained from the first press.</param>
+        /// <param name="modifiers">The shortcut modifiers retained from the first press.</param>
         /// <param name="source">The source used to resolve the transition.</param>
-        internal KeyboardTargetResolution(UiaChainModel chain, string keyText, KeyboardTargetSource source)
+        internal KeyboardTargetResolution(
+            UiaChainModel chain,
+            string keyText,
+            string[] modifiers,
+            KeyboardTargetSource source)
         {
             Chain = chain;
             KeyText = keyText;
+            Modifiers = modifiers;
             Source = source;
         }
         #endregion
@@ -218,6 +264,11 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         /// Gets the key text retained from the first press, or an empty value for an orphaned release.
         /// </summary>
         internal string KeyText { get; }
+
+        /// <summary>
+        /// Gets the shortcut modifiers retained from the first press; empty for typed text and orphaned releases.
+        /// </summary>
+        internal string[] Modifiers { get; }
 
         /// <summary>
         /// Gets the source used to resolve the keyboard transition.

@@ -16,8 +16,14 @@ namespace G4.Recorders.Uia.Domain.Hubs
         IUiaRecorderRepository repository,
         IUiaCursorPositionProvider cursorPositionProvider) : Hub
     {
+        // Longest time a flush waits for the capture worker before reporting an incomplete drain.
+        private static readonly TimeSpan FlushTimeout = TimeSpan.FromSeconds(3);
+
         // Shared process state gates hover sampling and separates consecutive recording sessions.
         private readonly RecorderConnectionState _connectionState = RecorderConnectionState.Instance;
+
+        // Shared queue counters let a stopping client wait for events already captured but not yet sent.
+        private readonly RecorderEventQueueState _queueState = RecorderEventQueueState.Instance;
 
         // Repository used for querying UIA elements at coordinates.
         private readonly IUiaRecorderRepository _repository = repository;
@@ -42,6 +48,16 @@ namespace G4.Recorders.Uia.Domain.Hubs
             _connectionState.RemoveConnection();
 
             await base.OnDisconnectedAsync(exception).ConfigureAwait(false);
+        }
+
+        // Waits until every input event captured before this call has been broadcast, so a client that is
+        // about to stop recording keeps the trailing keys and clicks still on the capture queue. Returns true
+        // when the queue drained within the timeout; false means some trailing events may still be in flight.
+        [HubMethodName(name: nameof(FlushRecorder))]
+        public Task<bool> FlushRecorder()
+        {
+            // Bound the wait by the hub call's own lifetime so a disconnecting client releases it.
+            return _queueState.WaitForDrainAsync(timeout: FlushTimeout, Context.ConnectionAborted);
         }
 
         // Sends a heartbeat message to the caller.
