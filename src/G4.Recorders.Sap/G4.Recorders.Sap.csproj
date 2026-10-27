@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<!-- Assembly -->
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<AssemblyVersion>10.0.0.0</AssemblyVersion>
+		<FileVersion>10.0.0.0</FileVersion>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<SatelliteResourceLanguages>en-US</SatelliteResourceLanguages>
+		<LangVersion>latest</LangVersion>
+		<UserSecretsId>5b0f0c7e-4c55-4f2e-9a8e-3d6f1c2b7a41</UserSecretsId>
+		<ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+		<!-- Run per-monitor DPI aware so hook coordinates and SAP GUI screen coordinates share physical pixels.
+		     SAP GUI runs in the user's own session, so the recorder runs as invoker and needs no elevation. -->
+		<ApplicationManifest>app.manifest</ApplicationManifest>
+
+		<!-- https://learn.microsoft.com/en-us/dotnet/fundamentals/syslib-diagnostics/syslib1040-1049 -->
+		<NoWarn>$(NoWarn);SYSLIB1045;IDE0130;SYSLIB1054;CA2101;S4200</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.1" />
+		<PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="10.3.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\G4.Recorders.Sap.Domain\G4.Recorders.Sap.Domain.csproj" />
+	</ItemGroup>
+
+</Project>

@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<!-- Assembly -->
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<!-- Unlocks System.Drawing/System.Windows.Forms for the screenshot primitive, as in the UIA recorder. -->
+		<UseWindowsForms>true</UseWindowsForms>
+		<AssemblyVersion>10.0.0.0</AssemblyVersion>
+		<FileVersion>10.0.0.0</FileVersion>
+		<IsPackable>false</IsPackable>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<SatelliteResourceLanguages>en-US</SatelliteResourceLanguages>
+		<LangVersion>latest</LangVersion>
+		<ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+		<!-- https://learn.microsoft.com/en-us/dotnet/fundamentals/syslib-diagnostics/syslib1040-1049 -->
+		<NoWarn>$(NoWarn);SYSLIB1045;IDE0130;SYSLIB1054;CA2101;S4200</NoWarn>
+	</PropertyGroup>
+
+	<!-- SAP GUI Scripting is reached late-bound through IDispatch, so the project needs no SAP type library or
+	     COM reference and builds with the dotnet CLI. -->
+
+	<ItemGroup>
+		<!-- Embeds the fixed MCP tool catalog, so the MCP repository loads it without touching disk at runtime. -->
+		<EmbeddedResource Include="Resources.SystemTools\**\*.*" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="G4.Recorders.Sap.Domain.UnitTests" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\G4.Recorders.Common.Domain\G4.Recorders.Common.Domain.csproj" />
+	</ItemGroup>
+
+</Project>

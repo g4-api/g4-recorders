@@ -1,0 +1,22 @@
+{
+	"name": "g4.MovePointer",
+	"title": "Move The Physical Cursor",
+	"description": "Physically moves the desktop cursor to the given physical screen coordinates and returns the position it actually settled at.",
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"x": {
+				"type": "integer",
+				"description": "The horizontal physical screen coordinate to move the cursor to."
+			},
+			"y": {
+				"type": "integer",
+				"description": "The vertical physical screen coordinate to move the cursor to."
+			}
+		},
+		"required": [
+			"x",
+			"y"
+		]
+	}
+}

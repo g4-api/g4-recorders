@@ -1,0 +1,70 @@
+{
+	"name": "g4.ConvertScreenshotPoint",
+	"title": "Convert A Screenshot Point",
+	"description": "Converts one raw pixel selected on a g4.GetScreenshot image into source-image and physical desktop pixels using the recorder's deterministic image layout and current metrics. Supply only the copied one-based imageNumber, x, and y; the recorder owns dimensions, scaling, origin, DPI, and physical-coordinate conversion.",
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"imageNumber": {
+				"type": "integer",
+				"minimum": 1,
+				"description": "One-based number copied from the metadata immediately preceding the exact g4.GetScreenshot image containing the selected pixel."
+			},
+			"x": {
+				"type": "integer",
+				"minimum": 0,
+				"description": "Horizontal pixel selected on the exact g4.GetScreenshot image identified by imageNumber."
+			},
+			"y": {
+				"type": "integer",
+				"minimum": 0,
+				"description": "Vertical pixel selected on the exact g4.GetScreenshot image identified by imageNumber."
+			}
+		},
+		"required": [
+			"imageNumber",
+			"x",
+			"y"
+		],
+		"additionalProperties": false
+	},
+	"outputSchema": {
+		"type": "object",
+		"properties": {
+			"sourcePixel": {
+				"$ref": "#/$defs/point"
+			},
+			"physicalDesktopPixel": {
+				"$ref": "#/$defs/point"
+			},
+			"coordinateSpace": {
+				"type": "string",
+				"const": "physical-desktop-device-pixels"
+			}
+		},
+		"required": [
+			"sourcePixel",
+			"physicalDesktopPixel",
+			"coordinateSpace"
+		],
+		"additionalProperties": false,
+		"$defs": {
+			"point": {
+				"type": "object",
+				"properties": {
+					"x": {
+						"type": "integer"
+					},
+					"y": {
+						"type": "integer"
+					}
+				},
+				"required": [
+					"x",
+					"y"
+				],
+				"additionalProperties": false
+			}
+		}
+	}
+}
