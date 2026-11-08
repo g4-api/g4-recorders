@@ -40,20 +40,21 @@ namespace G4.Recorders.Chromium.Domain
 
         // How long to wait for the extension to close the browser before forcing a kill.
         private const int GracefulCloseTimeoutSeconds = 5;
+
+        // Installed Chrome executables inside their macOS app bundles, relative to an Applications folder, in
+        // preference order. The macOS G4 sandbox ships no browser, so the recorder falls back to the system-wide or
+        // per-user installation. The paths are only probed on macOS, so they use its '/' separator directly.
+        private static readonly string[] MacOSInstalledBrowserPaths =
+        [
+            "Google Chrome.app/Contents/MacOS/Google Chrome",
+            "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+            "Chromium.app/Contents/MacOS/Chromium"
+        ];
         #endregion
 
         #region *** Fields    ***
         // Caches characters that require Windows command-line quoting across every browser launch.
         private static readonly SearchValues<char> ArgumentQuotingCharacters = SearchValues.Create([' ', '\t', '\n', '\v', '"']);
-
-        // Installed Chrome executables inside their macOS app bundles, relative to an Applications folder. The macOS
-        // G4 sandbox ships no browser, so the recorder falls back to the system-wide or per-user installation.
-        private static readonly string[] MacOSInstalledBrowserPaths =
-        [
-            Path.Combine("Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
-            Path.Combine("Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing"),
-            Path.Combine("Chromium.app", "Contents", "MacOS", "Chromium")
-        ];
 
         // Registry of processes started by this launcher, keyed by process id. Only ids in
         // this map may be stopped, so an arbitrary/unknown process id can never be killed.
@@ -92,6 +93,7 @@ namespace G4.Recorders.Chromium.Domain
 
             if (string.IsNullOrWhiteSpace(browserPath))
             {
+                // Name every lookup source in the failure so the operator can supply a binary or install Chrome.
                 var message = "Browser binary not found on the recorder host. Provide " +
                     "capabilities.alwaysMatch.'goog:chromeOptions'.binary or install Chrome under the G4 sandbox " +
                     "(on macOS, install Google Chrome in Applications).";
@@ -345,19 +347,25 @@ namespace G4.Recorders.Chromium.Domain
         }
 
         // Finds an installed Chrome on macOS: the system /Applications folder first, then the user's ~/Applications,
-        // in the preference order of MacOSInstalledBrowserPaths. Returns null when none is installed.
+        // in the preference order of MacOSInstalledBrowserPaths. The lookup only reads the filesystem, owns no state,
+        // and returns null when none is installed so the caller reports the missing browser.
         private static string ResolveMacOSInstalledBrowserPath()
         {
+            // Start with the system-wide Applications folder so a machine-wide installation wins over a per-user one.
             var applicationFolders = new List<string> { "/Applications" };
-            var homePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var homePath = Environment.GetFolderPath(folder: Environment.SpecialFolder.UserProfile);
 
+            // Add the per-user Applications folder only when the host exposes a home directory, so the lookup never
+            // probes a path relative to the working directory.
             if (!string.IsNullOrWhiteSpace(homePath))
             {
-                applicationFolders.Add(Path.Combine(homePath, "Applications"));
+                applicationFolders.Add(Path.Combine(path1: homePath, path2: "Applications"));
             }
 
+            // Probe folders in order and, within each folder, browsers in preference order, so the first existing
+            // executable is the one launched.
             return applicationFolders
-                .SelectMany(folder => MacOSInstalledBrowserPaths.Select(relativePath => Path.Combine(folder, relativePath)))
+                .SelectMany(folder => MacOSInstalledBrowserPaths.Select(relativePath => Path.Combine(path1: folder, path2: relativePath)))
                 .FirstOrDefault(File.Exists);
         }
 

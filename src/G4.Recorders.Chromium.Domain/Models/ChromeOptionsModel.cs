@@ -12,6 +12,9 @@ namespace G4.Recorders.Chromium.Domain.Models
         /// When omitted, the recorder resolves browsers/chrome beneath its own G4 sandbox, and on macOS (whose
         /// sandbox ships no browser) falls back to the Chrome installed in /Applications or ~/Applications.
         /// </summary>
+        /// <remarks>
+        /// An explicit path that does not exist fails the launch; it is never replaced by a sandbox or installed browser.
+        /// </remarks>
         public string Binary { get; set; }
 
         /// <summary>
