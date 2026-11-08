@@ -46,6 +46,15 @@ namespace G4.Recorders.Chromium.Domain
         // Caches characters that require Windows command-line quoting across every browser launch.
         private static readonly SearchValues<char> ArgumentQuotingCharacters = SearchValues.Create([' ', '\t', '\n', '\v', '"']);
 
+        // Installed Chrome executables inside their macOS app bundles, relative to an Applications folder. The macOS
+        // G4 sandbox ships no browser, so the recorder falls back to the system-wide or per-user installation.
+        private static readonly string[] MacOSInstalledBrowserPaths =
+        [
+            Path.Combine("Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
+            Path.Combine("Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing"),
+            Path.Combine("Chromium.app", "Contents", "MacOS", "Chromium")
+        ];
+
         // Registry of processes started by this launcher, keyed by process id. Only ids in
         // this map may be stopped, so an arbitrary/unknown process id can never be killed.
         private readonly ConcurrentDictionary<int, Process> _startedProcesses = new();
@@ -77,13 +86,15 @@ namespace G4.Recorders.Chromium.Domain
             // Normalize omitted Chromium options so remote HTTP callers can rely on recorder-side sandbox discovery.
             var chromeOptions = driverParameters?.Capabilities?.AlwaysMatch?.ChromeOptions ?? new ChromeOptionsModel();
 
-            // Resolve an explicit recorder-host path first, then the recorder's own standard sandbox browser path.
+            // Resolve an explicit recorder-host path first, then the recorder's own standard sandbox browser path,
+            // then (macOS only) the installed Chrome.
             var browserPath = ResolveBrowserPath(chromeOptions.Binary);
 
             if (string.IsNullOrWhiteSpace(browserPath))
             {
                 var message = "Browser binary not found on the recorder host. Provide " +
-                    "capabilities.alwaysMatch.'goog:chromeOptions'.binary or install Chrome under the G4 sandbox.";
+                    "capabilities.alwaysMatch.'goog:chromeOptions'.binary or install Chrome under the G4 sandbox " +
+                    "(on macOS, install Google Chrome in Applications).";
                 throw new FileNotFoundException(message);
             }
 
@@ -324,7 +335,30 @@ namespace G4.Recorders.Chromium.Domain
             var executableName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "chrome.exe" : "chrome";
             var sandboxBrowserPath = Path.Combine(sandboxPath, "browsers", "chrome", executableName);
 
-            return File.Exists(sandboxBrowserPath) ? sandboxBrowserPath : null;
+            if (File.Exists(sandboxBrowserPath))
+            {
+                return sandboxBrowserPath;
+            }
+
+            // The macOS sandbox omits the standalone browser, so use the host's installed Chrome there instead.
+            return RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? ResolveMacOSInstalledBrowserPath() : null;
+        }
+
+        // Finds an installed Chrome on macOS: the system /Applications folder first, then the user's ~/Applications,
+        // in the preference order of MacOSInstalledBrowserPaths. Returns null when none is installed.
+        private static string ResolveMacOSInstalledBrowserPath()
+        {
+            var applicationFolders = new List<string> { "/Applications" };
+            var homePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            if (!string.IsNullOrWhiteSpace(homePath))
+            {
+                applicationFolders.Add(Path.Combine(homePath, "Applications"));
+            }
+
+            return applicationFolders
+                .SelectMany(folder => MacOSInstalledBrowserPaths.Select(relativePath => Path.Combine(folder, relativePath)))
+                .FirstOrDefault(File.Exists);
         }
 
         // Starts the browser through the recorder host's native process API and returns the tracked process id.

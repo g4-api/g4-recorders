@@ -9,7 +9,8 @@ namespace G4.Recorders.Chromium.Domain.Models
     {
         /// <summary>
         /// The optional full path, on the recorder host, to the Chromium/Chrome executable to launch.
-        /// When omitted, the recorder resolves browsers/chrome beneath its own G4 sandbox.
+        /// When omitted, the recorder resolves browsers/chrome beneath its own G4 sandbox, and on macOS (whose
+        /// sandbox ships no browser) falls back to the Chrome installed in /Applications or ~/Applications.
         /// </summary>
         public string Binary { get; set; }
 
