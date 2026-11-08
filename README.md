@@ -100,11 +100,11 @@ Each service exposes a Swagger UI and a health-check endpoint:
 
 ```bash
 # UIA Recorder
-curl http://localhost:9955/api/v4/g4/ping
+curl http://localhost:9955/api/v4/g4/recorders/uia/ping
 # Output: Pong
 
 # Chromium Recorder
-curl http://localhost:9956/api/v4/g4/ping
+curl http://localhost:9956/api/v4/g4/recorders/chromium/ping
 # Output: Pong
 ```
 
@@ -117,15 +117,16 @@ curl http://localhost:9956/api/v4/g4/ping
 
 ## Recording Event Contract (shared)
 
-All tools broadcast recorded interactions to connected clients using the SignalR message **`ReceiveRecordingEvent`**. The payload is always wrapped in a `{ "value": { ... } }` envelope with this shape:
+All tools broadcast recorded interactions to connected clients using the SignalR message **`ReceiveRecordingEvent`**. The payload is always wrapped in a `{ "value": { ... } }` envelope. JSON names are camelCase and null properties are omitted (`RecorderEventModel.cs`, `Program.cs` serializer options). The inner object has this shape:
 
-* `chain` — the element chain (locator + ordered `path` of nodes) where the event occurred.
-* `event` — the specific event name (e.g., `Down`, `Click`).
-* `machineName` — the machine that recorded the event.
-* `offset` — the pointer distance from the target rectangle's top-left corner, defaulting to `{ "x": 0, "y": 0 }`.
-* `timestamp` — Unix epoch **milliseconds**.
-* `type` — the event category (e.g., `Keyboard`, `Mouse`).
-* `value` — the event payload (e.g., the pressed key, or coordinates).
+* `chain`: the element chain (`RecorderChainModel`): `locator`, ordered `path` of nodes, `trigger`, and, when known, `point`, `mouseOffset` and `topWindow`.
+* `event`: the specific event name (see the event names table below).
+* `machineName`: the machine that recorded the event.
+* `timestamp`: Unix epoch **milliseconds**.
+* `type`: the event category (`Keyboard` or `Mouse`).
+* `value`: the event payload (see the table below).
+
+Each node in `chain.path` (`RecorderNodeModel`) can carry: `automationId`, `bounds` (`X`, `Y`, `width`, `height`), `className`, `controlTypeId`, `controlType`, `frameworkId`, `isTopWindow`, `isTriggerElement`, `machine` (`name`, `publicAddress`), `name`, `patterns` (`id`, `name`), `processId`, `properties` and `runtimeId`. The pointer `point` uses the names `X` and `Y`. The `mouseOffset` uses the names `x` and `y`.
 
 **Sample `ReceiveRecordingEvent` payload (UIA Recorder keyboard event):**
 
@@ -158,22 +159,41 @@ All tools broadcast recorded interactions to connected clients using the SignalR
             ],
             "trigger": "Focus"
         },
-        "event": "Down",
-        "offset": { "x": 0, "y": 0 },
+        "event": "Key Down",
+        "machineName": "...",
         "timestamp": 1757618366611,
         "type": "Keyboard",
-        "value": { "scanCode": 30, "virtualKey": 65, "key": "a" }
+        "value": {
+            "scanCode": 30,
+            "virtualKey": 65,
+            "key": "a",
+            "modifiers": [],
+            "targetSource": "CapturedSnapshot"
+        }
     }
 }
 ```
 
 > **Note:** The `path` array is ordered **top-down**. The **last element** is always the **target element** (the trigger) and carries more metadata than its ancestors to keep the payload compact. Chromium Recorder events use the same top-level shape; only the chain **node contents** differ (DOM elements instead of UIA elements).
 
-For UIA mouse events, `offset.x` is the captured pointer X coordinate minus the trigger bounds' `X`, and
-`offset.y` is the pointer Y coordinate minus the trigger bounds' `Y`. Chromium events currently retain the shared
-zero default until DOM-relative offset capture is enabled.
+The complete field lists, event names per recorder, peek routes and flow mapping are in [docs/events](docs/events/contract.md).
+
+### Event names
+
+| Type | Event names | `value` fields | Source |
+| --- | --- | --- | --- |
+| Keyboard | `Key Down`, `Key Up` | `scanCode`, `virtualKey`, `key`, `modifiers` (for example `Ctrl`, `Alt`, `Shift`), `targetSource` | `UiaEventCaptureService.cs` (`ResolveKeyboardEvent`) |
+| Mouse button | `Left Down`, `Left Up`, `Right Down`, `Right Up`, `Middle Down`, `Middle Up` | `x`, `y` (absolute pointer position) | `UiaEventCaptureService.cs` (`GetMouseEventName`) |
+| Mouse wheel | `Wheel Up`, `Wheel Down`, `Wheel Left`, `Wheel Right` | `notches`, `x`, `y` | `UiaEventCaptureService.cs` (`ResolveMouseEvent`) |
+
+`targetSource` is one of `CapturedSnapshot`, `FocusFallback`, `MissingSnapshot`, `OrphanFallback`, `PairedRelease` or `RepeatedPress` (`KeyboardTargetResolver.cs`).
+
+For UIA mouse events, `chain.mouseOffset.x` is the captured pointer X coordinate minus the trigger bounds' `X`, and
+`chain.mouseOffset.y` is the pointer Y coordinate minus the trigger bounds' `Y`. The offset is not an event-level
+property. Chromium events do not currently set `mouseOffset`.
 
 ---
+
 
 ## UIA Recorder — Desktop Recorder
 
@@ -195,13 +215,13 @@ The **RecorderController** provides REST endpoints to peek at UI elements.
 
 ```bash
 # Peek at specific coordinates (x=250, y=300)
-curl "http://localhost:9955/api/v4/g4/recorder/element?x=250&y=300"
+curl "http://localhost:9955/api/v4/g4/recorders/uia/recorder/element?x=250&y=300"
 
 # Peek at the currently focused element
-curl "http://localhost:9955/api/v4/g4/recorder/element?focused=true"
+curl "http://localhost:9955/api/v4/g4/recorders/uia/recorder/element?focused=true"
 
 # Peek at the current physical cursor position
-curl "http://localhost:9955/api/v4/g4/recorder/element"
+curl "http://localhost:9955/api/v4/g4/recorders/uia/recorder/element"
 ```
 
 The response is the ancestor `chain` object (same shape as the `chain` field in a recording event).
@@ -210,14 +230,14 @@ The response is the ancestor `chain` object (same shape as the `chain` field in 
 
 **Hub URL:** `http://localhost:9955/hub/v4/g4/peek`
 
-**Client → Server Methods**
+**Client → Server Methods:**
 
 * `SendHeartbeat()`
-* `SendPeekAt({ xPos, yPos })`
+* `SendPeekAt({ X, Y })`
 * `SendPeekFocused()`
 * `SendPeekCurrent()`
 
-**Server → Client Events**
+**Server → Client Events:**
 
 * `ReceiveHeartbeat` — heartbeat confirmation
 * `ReceivePeek` — ancestor chain result
@@ -244,17 +264,17 @@ Chromium Recorder listens on **`http://localhost:9956`**. Unlike UIA Recorder, i
 
 **Hub URL:** `http://localhost:9956/hub/v4/g4/peek`
 
-**Client → Server Methods**
+**Client → Server Methods:**
 
 * `StartRecorder(driverParameters)` → returns the launched browser **process id**
 * `StopRecorder(processId)` → returns `true` if a tracked browser was stopped, `false` if the id is unknown/already closed
 * `SendHeartbeat()`
-* `SendPeekAt({ xPos, yPos })`
+* `SendPeekAt({ X, Y })`
 * `SendPeekFocused()`
 * `SendPeekCurrent()`
 * `SendRecordingEvent(event)` — used by the **extension** (producer); consumers do not call this
 
-**Server → Client Events**
+**Server → Client Events:**
 
 * `ReceiveHeartbeat` — heartbeat confirmation
 * `ReceivePeek` — DOM ancestor chain result
@@ -268,13 +288,13 @@ relative to the active frame viewport.
 
 ```bash
 # Peek at viewport coordinates
-curl "http://localhost:9956/api/v4/g4/recorder/element?x=250&y=300"
+curl "http://localhost:9956/api/v4/g4/recorders/chromium/recorder/element?x=250&y=300"
 
 # Peek at the focused element
-curl "http://localhost:9956/api/v4/g4/recorder/element?focused=true"
+curl "http://localhost:9956/api/v4/g4/recorders/chromium/recorder/element?focused=true"
 
 # Peek at the extension's current pointer position
-curl "http://localhost:9956/api/v4/g4/recorder/element"
+curl "http://localhost:9956/api/v4/g4/recorders/chromium/recorder/element"
 ```
 
 Supplying either coordinate selects coordinate mode and defaults the omitted axis to zero. Coordinates take
@@ -303,7 +323,7 @@ Each launch gets its own dedicated user-data directory, so it never collides wit
 ### Health Check
 
 ```bash
-curl http://localhost:9956/api/v4/g4/ping
+curl http://localhost:9956/api/v4/g4/recorders/chromium/ping
 # Output: Pong
 ```
 
@@ -450,10 +470,10 @@ G4.Recorders.Sap peek -x 100 -y 200
 
 **Hub URL:** `http://localhost:9957/hub/v4/g4/peek`
 
-**Client → Server Methods**
+**Client → Server Methods:**
 
 * `SendHeartbeat()`
-* `SendPeekAt({ xPos, yPos })`
+* `SendPeekAt({ X, Y })`
 * `SendPeekFocused()`
 * `SendPeekCurrent()`
 * `StartRecorder(parameters)` — applies this client's values; returns `{ processId, isLaunched, options }`
@@ -461,7 +481,7 @@ G4.Recorders.Sap peek -x 100 -y 200
 * `FlushRecorder()` — waits until every event captured so far has been sent; returns `false` after 3 seconds
 * `GetRecorderStatus()` — the per-session status, as the status route returns it
 
-**Server → Client Events**
+**Server → Client Events:**
 
 * `ReceiveHeartbeat` — heartbeat confirmation
 * `ReceivePeek` — SAP chain result
@@ -509,7 +529,9 @@ variable, then the `Environment` section of the test project's `appsettings.json
 
 ## SignalR Client Examples
 
-The **listening** pattern is identical for both hubs — only the URL changes (`9955` for UIA Recorder, `9956` for Chromium Recorder). The Chromium-only `StartRecorder`/`StopRecorder` calls are shown alongside.
+The **listening** pattern is identical for all hubs. Only the URL changes (`9955` for UIA Recorder, `9956` for Chromium Recorder, `9957` for SAP Recorder). The Chromium-only `StartRecorder`/`StopRecorder` calls are shown alongside.
+
+UIA and Chromium messages hold one event in `value`. A SAP message holds up to two events, `value.user32` and `value.nativeSap`, so each sample unwraps both shapes. The full field lists are in [docs/events](docs/events/contract.md).
 
 ### Python Example
 
@@ -522,7 +544,7 @@ pip install signalrcore
 ```python
 from signalrcore.hub_connection_builder import HubConnectionBuilder
 
-# Use 9955 for UIA Recorder or 9956 for Chromium Recorder.
+# Use 9955 for UIA Recorder, 9956 for Chromium Recorder or 9957 for SAP Recorder.
 hub = (
     HubConnectionBuilder()
     .with_url("http://localhost:9955/hub/v4/g4/peek")
@@ -536,9 +558,19 @@ def on_heartbeat(payload):
 def on_peek(payload):
     print("Peek:", payload)
 
+def print_event(label, event):
+    print(f"RecordingEvent{label}: type={event.get('type')} event={event.get('event')} value={event.get('value')}")
+
 def on_recording_event(payload):
-    event = (payload[0] if isinstance(payload, list) else payload).get("value", {})
-    print(f"RecordingEvent: type={event.get('type')} event={event.get('event')} value={event.get('value')}")
+    message = (payload[0] if isinstance(payload, list) else payload).get("value", {})
+
+    # A SAP message carries one event per stream; UIA and Chromium carry a single event.
+    streams = [key for key in ("user32", "nativeSap") if key in message]
+    if streams:
+        for key in streams:
+            print_event(f" [{key}]", message[key])
+    else:
+        print_event("", message)
 
 hub.on("ReceiveHeartbeat", on_heartbeat)
 hub.on("ReceivePeek", on_peek)
@@ -572,7 +604,7 @@ npm i @microsoft/signalr
 ```javascript
 import * as signalR from "@microsoft/signalr";
 
-// Use 9955 for UIA Recorder or 9956 for Chromium Recorder.
+// Use 9955 for UIA Recorder, 9956 for Chromium Recorder or 9957 for SAP Recorder.
 const connection = new signalR.HubConnectionBuilder()
     .withUrl("http://localhost:9955/hub/v4/g4/peek")
     .withAutomaticReconnect()
@@ -581,8 +613,16 @@ const connection = new signalR.HubConnectionBuilder()
 connection.on("ReceiveHeartbeat", (payload) => console.log("Heartbeat:", payload));
 connection.on("ReceivePeek", (payload) => console.log("Peek chain:", payload?.value));
 connection.on("ReceiveRecordingEvent", (payload) => {
-    const event = payload?.value || {};
-    console.log("RecordingEvent:", event.type, event.event, event.value);
+    const message = payload?.value || {};
+
+    // A SAP message carries one event per stream; UIA and Chromium carry a single event.
+    const events = ("user32" in message || "nativeSap" in message)
+        ? [message.user32, message.nativeSap].filter(Boolean)
+        : [message];
+
+    for (const event of events) {
+        console.log("RecordingEvent:", event.type, event.event, event.value);
+    }
 });
 
 async function main() {
@@ -616,7 +656,7 @@ dotnet add package Microsoft.AspNetCore.SignalR.Client
 using Microsoft.AspNetCore.SignalR.Client;
 using System.Text.Json;
 
-// Use 9955 for UIA Recorder or 9956 for Chromium Recorder.
+// Use 9955 for UIA Recorder, 9956 for Chromium Recorder or 9957 for SAP Recorder.
 var connection = new HubConnectionBuilder()
     .WithUrl("http://localhost:9955/hub/v4/g4/peek")
     .WithAutomaticReconnect()
@@ -624,10 +664,22 @@ var connection = new HubConnectionBuilder()
 
 connection.On<JsonElement>("ReceiveRecordingEvent", envelope =>
 {
-    var recordingEvent = envelope.GetProperty("value");
-    var type = recordingEvent.GetProperty("type").GetString();
-    var name = recordingEvent.GetProperty("event").GetString();
-    Console.WriteLine($"RecordingEvent: {type} / {name}");
+    var message = envelope.GetProperty("value");
+
+    // A SAP message carries one event per stream; UIA and Chromium carry a single event.
+    var isSapMessage = message.TryGetProperty("user32", out _) || message.TryGetProperty("nativeSap", out _);
+    var events = isSapMessage
+        ? new[] { "user32", "nativeSap" }
+            .Where(stream => message.TryGetProperty(stream, out _))
+            .Select(stream => message.GetProperty(stream))
+        : new[] { message };
+
+    foreach (var recordingEvent in events)
+    {
+        var type = recordingEvent.GetProperty("type").GetString();
+        var name = recordingEvent.GetProperty("event").GetString();
+        Console.WriteLine($"RecordingEvent: {type} / {name}");
+    }
 });
 
 await connection.StartAsync();
@@ -760,3 +812,7 @@ G4 Recorders Path Finder shows the UI-Automation path (an XPath-like locator) fo
 ## License
 
 MIT License. See `LICENSE` for details.
+
+## Contributing and builds
+
+Build tools, test commands, version numbers, Docker images and development ports are in the [build, test and release guide](../g4-github-actions/docs/build-test-release.md).
