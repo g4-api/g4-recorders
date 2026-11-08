@@ -277,6 +277,16 @@ jobs:
             runtime: linux-x64
             archiveExtension: tar.gz
             artifactName: chromium-recorder-linux-drop
+          # macOS drops for Intel and Apple Silicon. The recorder is framework-dependent (no native
+          # compilation), so the Apple Silicon runner publishes both runtime identifiers.
+          - runner: macos-latest
+            runtime: osx-x64
+            archiveExtension: tar.gz
+            artifactName: chromium-recorder-osx-x64-drop
+          - runner: macos-latest
+            runtime: osx-arm64
+            archiveExtension: tar.gz
+            artifactName: chromium-recorder-osx-arm64-drop
 
     # Outputs of the job
     outputs:
@@ -400,6 +410,16 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: chromium-recorder-linux-drop
+
+    - name: Download G4 Recorders - Chromium macOS Intel Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: chromium-recorder-osx-x64-drop
+
+    - name: Download G4 Recorders - Chromium macOS Apple Silicon Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: chromium-recorder-osx-arm64-drop
 
     # Step to download G4 Recorders - SAP build artifacts
     - name: Download G4 Recorders - SAP Build Artifacts
