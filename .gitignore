@@ -132,6 +132,8 @@ ipch/
 *.vsp
 *.vspx
 *.sap
+# Keep the SAP recorder host project; *.sap above matches its folder name on case-insensitive file systems.
+!**/G4.Recorders.Sap/
 
 # Visual Studio Trace Files
 *.e2e

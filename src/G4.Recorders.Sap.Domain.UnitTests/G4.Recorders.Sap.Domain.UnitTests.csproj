@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<IsPackable>false</IsPackable>
+		<IsTestProject>true</IsTestProject>
+		<LangVersion>latest</LangVersion>
+		<!-- The event sink tests call IDispatch.Invoke through its vtable, as SAP GUI does. -->
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+		<PackageReference Include="MSTest.TestAdapter" Version="4.5.1" />
+		<PackageReference Include="MSTest.TestFramework" Version="4.5.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Holds the simulator test switches; .runsettings parameters and environment variables override it. -->
+		<None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\G4.Recorders.Sap.Domain\G4.Recorders.Sap.Domain.csproj" />
+	</ItemGroup>
+
+</Project>

@@ -1,10 +1,10 @@
 # G4 Chromium Recorder
 
 A vanilla-JavaScript Manifest V3 browser extension that records interactions in the
-browser and streams them to the G4 **ChromiumPeek** SignalR hub using the same response
-contract as the **UiaPeek** desktop recorder. A consumer client connected to the hub
+browser and streams them to the G4 **Chromium recorder** SignalR hub (`ChromiumRecorderHub`) using the same response
+contract as the **UIA** desktop recorder. A consumer client connected to the hub
 receives each interaction as a `ReceiveRecordingEvent` broadcast whose payload is shaped
-exactly like a `UiaEventModel`.
+like a UIA recorder event.
 
 The extension is fully offline: the official Microsoft SignalR client is vendored into
 the project and no script is ever fetched from a network at runtime.
@@ -16,7 +16,7 @@ DOM event (any frame)
   -> content-script.js builds a RecorderEventModel (XPath locator + CSS, ARIA mapping)
   -> chrome.runtime message to the background service worker
   -> background.js invokes SendRecordingEvent on the hub (SignalR over WebSocket)
-  -> C# ChromiumPeekHub re-broadcasts ReceiveRecordingEvent { value: <event> }
+  -> C# ChromiumRecorderHub re-broadcasts ReceiveRecordingEvent { value: <event> }
   -> consumer clients receive the event
 ```
 
@@ -26,16 +26,18 @@ the popup.
 
 ## Contract
 
-The payload matches the UiaPeek/ChromiumPeek C# models (camelCase on the wire):
+The payload matches the shared recorder C# models in `G4.Recorders.Common.Domain` (camelCase on the wire):
 
-- `RecorderEventModel` — `{ chain, event, machineName, offset, timestamp, type, value }`
-- `ChainModel` — `{ locator, path[], point, topWindow, trigger }`
+- `RecorderEventModel` — `{ chain, event, machineName, timestamp, type, value }`
+- `ChainModel` — `{ locator, path[], point, mouseOffset, topWindow, trigger }`
 - `RecorderNodeModel` — `{ automationId, bounds, className, controlTypeId, controlType,
   frameworkId, isTopWindow, isTriggerElement, machine, name, patterns[], processId,
   properties, runtimeId[] }`
 - `BoundsRectangle` — `{ height, width, X, Y }` (X = Left, Y = Top)
 - `RecorderPointModel` — `{ X, Y }`
-- `RecorderOffsetModel` — `{ x, y }`, currently emitted as the shared Chromium default `{ x: 0, y: 0 }`
+- `RecorderOffsetModel` — `{ x, y }`, the shape of `chain.mouseOffset`. The extension does not set it today.
+
+The extension's contract builder (`lib/recorder-contract.js`) still adds an event-level `offset`. The hub models have no such property, so it is not part of the contract and is not forwarded to consumers.
 
 ### DOM → contract mapping
 
@@ -56,59 +58,7 @@ shape stays identical.
 
 ### Captured events
 
-Event names follow the G4 action style.
-
-Interaction events:
-
-| `event` | Trigger | `type` |
-| --- | --- | --- |
-| `InvokeClick` | click | Mouse |
-| `InvokeDoubleClick` | double click | Mouse |
-| `InvokeContextClick` | right-click / context menu | Mouse |
-| `InvokeScroll` | wheel/scroll (direction + notches in `value`) | Mouse |
-| `SendKeys` | typed-field commit (focus loss, field change, form submission, or page exit); `value.text` = typed text, password-redactable | Keyboard |
-| `SubmitForm` | form submit (`value` carries `formId`/`formName`) | Form |
-
-> Single-key actions (`keydown`/`keyup`) and **key
-> combinations** (Ctrl/Alt/Cmd + key, planned as a distinct `SendKeysCombination` event)
-> are **deferred** — placeholders marked `// TODO(key-combination)` that emit nothing for
-> now; trusted `input` events update one field session, which is captured as one `SendKeys`
-> on commit regardless of pauses between keystrokes.
-
-Navigation events (type `Navigation`, top frame, full-page only):
-
-| `event` | Meaning |
-| --- | --- |
-| `OpenUrl` | Address-bar navigation: a typed URL or search (`from_address_bar` / typed transitions). Link clicks/form submits/redirects are **not** OpenUrl — they are the `InvokeClick` / `SubmitForm` already captured. |
-| `UpdatePage` | A reload / refresh. |
-| `RedoNavigation` | Forward. |
-| `UndoNavigation` | Back. |
-
-Context events (type `Context`):
-
-| `event` | Trigger | `value` |
-| --- | --- | --- |
-| `SwitchFrame` | an interaction moves into a frame (deeper or sideways in the frame tree) | `{ frameId, frameUrl, xpath, cssSelector }` — the iframe element locator is resolved for same-origin frames; cross-origin falls back to URL + frameId |
-| `SwitchParentFrame` | an interaction moves up to an ancestor frame (e.g. back to the top document) | same shape as `SwitchFrame` for the frame moved into |
-| `SwitchWindow` | the active tab changes | `{ tabId, index }` |
-| `CloseWindow` | a tab closes | `{ tabId, index }` |
-
-`SwitchWindow` / `CloseWindow` `index` is the 0-based position in the **driver window-handle
-list** (creation order, `0` = first/main), matching G4's `SwitchWindow(n)` / `CloseWindow(n)`
-semantics — not the Chrome tab-strip position. The recorder tracks this list (seeded from the
-open tabs, then updated on tab create/close) and persists it in `chrome.storage.session`.
-Closing a tab emits `CloseWindow(index)`, then the browser activating another tab emits the
-following `SwitchWindow`. No `tabs` permission is required (`id`/`index` are available without
-it).
-
-A switch event is emitted **once per actual frame change** (then subsequent interactions in
-the same frame are just the action). Direction is resolved from the frame tree via
-`chrome.webNavigation.getAllFrames`, and the active frame per tab is persisted in
-`chrome.storage.session` so detection survives a service-worker restart. Expected order
-for a frame interaction: `SwitchFrame` → `InvokeClick`/`SendKeys`/…; returning to the
-parent: `SwitchParentFrame` → action.
-
-All events can be toggled on the settings page.
+The event catalog moved to [docs/events/chromium-events.md](../../docs/events/chromium-events.md). It lists every `event` name, its trigger, its `type` and its `value`.
 
 ## Project layout
 
@@ -130,28 +80,29 @@ lib/
 css/                    parameters / layout / visual split per component (+ fonts.css,
                         form-controls.*), palette matched to the G4 designer
 fonts/                  Inter (body/UI) + Space Grotesk (titles), self-hosted (offline)
-user-interface/
-  popup.html / popup.js
-  options.html / options.js
+components/
+  popup/                popup.html / popup.js (+ layout, parameters, visual CSS)
+  options/              options.html / options.js (+ layout, parameters, visual CSS)
+  form-controls/        form-controls.js (+ layout, parameters, visual CSS)
 icons/
 ```
 
 ## Location & loading
 
-The extension lives at
-`E:\Development\csharp\uia-peek\src\ChromiumPeek.Extension` and is linked into the
-`ChromiumPeek` host project. On build, `ChromiumPeek.csproj` copies it into the output at
-`bin\Debug\net10.0\ChromiumPeek.Extension`, and `StartChromiumWithExtension` launches
+The extension lives in the `src\G4.Recorders.Chromium.Extension` folder of this repository
+and is linked into the `G4.Recorders.Chromium` host project. On build,
+`G4.Recorders.Chromium.csproj` copies it into the output under
+`G4.Recorders.Chromium.Extension`, and `ChromiumRecorderLauncher` launches
 Chrome with the browser load-extension argument pointing at that output folder. So
-running `ChromiumPeek` auto-loads the extension — no manual step required.
+running `G4.Recorders.Chromium` auto-loads the extension — no manual step required.
 
 ### Manual load (optional)
 
-1. Build/start the C# `ChromiumPeek` hub so it listens on `http://localhost:9956`.
+1. Build/start the C# `G4.Recorders.Chromium` hub so it listens on `http://localhost:9956`.
 2. Open `chrome://extensions` in a Chromium browser.
 3. Enable **Developer mode**.
-4. Click **Load unpacked** and select
-   `E:\Development\csharp\uia-peek\src\ChromiumPeek.Extension`.
+4. Click **Load unpacked** and select the `src\G4.Recorders.Chromium.Extension` folder
+   of this repository.
 5. Open the popup to confirm the status shows **Connected**.
 
 ## Settings
@@ -162,7 +113,7 @@ Open the popup and click **Settings** (or use the browser's extension options):
 - **Connect automatically** — connect on browser start.
 - **Reconnect delays** — backoff for automatic reconnect.
 - **Redact passwords** — mask values from password/sensitive fields (default off).
-- **Maximum events per session** — popup stack cap.
+- **Maximum events per session** — popup stack cap (default 200).
 - **Events to capture** — per-event-type toggles.
 
 > Changing the hub host or port may require updating `host_permissions` in
@@ -170,15 +121,19 @@ Open the popup and click **Settings** (or use the browser's extension options):
 
 ## Server-side requirement
 
-The C# `ChromiumPeek` project must expose a relay method the extension invokes:
+The C# `G4.Recorders.Chromium` hub exposes a relay method the extension invokes:
 
 ```csharp
+[HubMethodName(name: nameof(SendRecordingEvent))]
 public Task SendRecordingEvent(ChromiumEventModel recordingEvent)
 {
-    return Clients.All.SendAsync(
-        method: "ReceiveRecordingEvent",
-        arg1: new HubResponseModel(recordingEvent));
+    return _eventCapture.BroadcastRecordingEventAsync(recordingEvent);
 }
+
+// ChromiumEventCaptureService.BroadcastRecordingEventAsync
+return _hubContext.Clients.All.SendAsync(
+    method: "ReceiveRecordingEvent",
+    arg1: new { Value = recordingEvent });
 ```
 
 The hub's CORS origin check must also allow the extension origin

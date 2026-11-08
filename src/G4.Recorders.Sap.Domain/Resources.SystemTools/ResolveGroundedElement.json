@@ -1,0 +1,137 @@
+{
+	"name": "g4.ResolveGroundedElement",
+	"title": "Ground A Coordinate Against SAP GUI",
+	"description": "Physically moves the cursor to the given coordinates, resolves the SAP GUI control at the settled cursor position through SAP GUI Scripting, and - unless skipOffset is set - resolves the pointer's pixel offset from that element's top-left corner.",
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"x": {
+				"type": "integer",
+				"description": "The horizontal physical screen coordinate to ground against."
+			},
+			"y": {
+				"type": "integer",
+				"description": "The vertical physical screen coordinate to ground against."
+			},
+			"skipOffset": {
+				"type": "boolean",
+				"description": "When true, skips offset computation and leaves the returned chain's offset null."
+			}
+		},
+		"required": [
+			"x",
+			"y"
+		]
+	},
+	"outputSchema": {
+		"type": "object",
+		"properties": {
+			"locator": {
+				"type": "string",
+				"description": "XPath on the grounded control's absolute SAP GUI Scripting identifier, resolved by the SAP driver through findById."
+			},
+			"path": {
+				"type": "array",
+				"description": "SAP GUI ancestry from the top window through the grounded trigger control.",
+				"items": {
+					"$ref": "#/$defs/node"
+				}
+			},
+			"point": {
+				"$ref": "#/$defs/point"
+			},
+			"mouseOffset": {
+				"$ref": "#/$defs/offset"
+			},
+			"topWindow": {
+				"$ref": "#/$defs/node"
+			},
+			"trigger": {
+				"type": "string"
+			}
+		},
+		"required": [
+			"locator",
+			"path",
+			"point",
+			"trigger"
+		],
+		"additionalProperties": false,
+		"$defs": {
+			"point": {
+				"type": "object",
+				"properties": {
+					"X": { "type": "integer" },
+					"Y": { "type": "integer" }
+				},
+				"required": ["X", "Y"],
+				"additionalProperties": false
+			},
+			"offset": {
+				"type": "object",
+				"properties": {
+					"x": { "type": "integer" },
+					"y": { "type": "integer" }
+				},
+				"required": ["x", "y"],
+				"additionalProperties": false
+			},
+			"bounds": {
+				"type": "object",
+				"properties": {
+					"X": { "type": "number" },
+					"Y": { "type": "number" },
+					"width": { "type": "number" },
+					"height": { "type": "number" }
+				},
+				"required": ["X", "Y", "width", "height"],
+				"additionalProperties": false
+			},
+			"machine": {
+				"type": "object",
+				"properties": {
+					"name": { "type": "string" },
+					"publicAddress": { "type": "string" }
+				},
+				"required": ["name", "publicAddress"],
+				"additionalProperties": false
+			},
+			"node": {
+				"type": "object",
+				"properties": {
+					"automationId": { "type": "string" },
+					"bounds": { "$ref": "#/$defs/bounds" },
+					"className": { "type": "string" },
+					"controlTypeId": { "type": "integer" },
+					"controlType": { "type": "string" },
+					"frameworkId": { "type": "string" },
+					"isTopWindow": { "type": "boolean" },
+					"isTriggerElement": { "type": "boolean" },
+					"machine": { "$ref": "#/$defs/machine" },
+					"name": { "type": "string" },
+					"processId": { "type": "integer" },
+					"properties": {
+						"type": "object",
+						"additionalProperties": {
+							"type": ["string", "number", "integer", "boolean"]
+						}
+					},
+					"patterns": {
+						"type": "array"
+					},
+					"runtimeId": {
+						"type": "array",
+						"items": { "type": "integer" }
+					}
+				},
+				"required": [
+					"controlTypeId",
+					"isTopWindow",
+					"isTriggerElement",
+					"processId"
+				],
+				"additionalProperties": false
+			}
+		}
+	}
+}

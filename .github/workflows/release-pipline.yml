@@ -1,4 +1,4 @@
-# Workflow to build and release G4 Recorders (UIA & Chromium) for production
+# Workflow to build and release G4 Recorders (UIA, Chromium & SAP) for production
 name: Build & Release
 
 # Define permissions for the workflow
@@ -25,6 +25,7 @@ env:
   buildConfiguration: 'Release'
   buildPlatform: 'any cpu'
   chromiumProjectName: G4.Recorders.Chromium
+  sapProjectName: G4.Recorders.Sap
   uiaProjectName: G4.Recorders.Uia
   uiaPathFinderProjectName: G4.Recorders.Uia.PathFinder
 
@@ -193,6 +194,70 @@ jobs:
         name: uia-path-finder-drop
         path: ${{ env.artifactStagingDirectory }}/*.zip
 
+  # Job to build and publish the G4 Recorders SAP host
+  build-sap-recorder:
+    name: Build & Publish G4 Recorders - SAP Version ${{ needs.new-version.outputs.buildVersion }}
+    runs-on: windows-latest
+    needs: new-version
+    if: ${{ needs.new-version.result == 'success' && needs.new-version.outputs.validVersion == 'True' }}
+
+    # Outputs of the job
+    outputs:
+      buildVersion: ${{ needs.new-version.outputs.buildVersion }}
+
+    # Set environment variables specific to the build job
+    env:
+      buildVersion: ${{ needs.new-version.outputs.buildVersion }}
+
+    steps:
+    # Step to checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Step to setup .NET Core SDK
+    - name: Setup .NET Core SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    # Step to set the G4 Recorders - SAP version
+    - name: Set Version v${{ env.buildVersion }}
+      shell: pwsh
+      run: |
+        $filePath          = "${{ env.sapProjectName }}/Program.cs"
+        $tempVersion       = '"0000.00.00.0000"'
+        $version           = '"${{ env.buildVersion }}"'
+        $content           = Get-Content -LiteralPath $filePath -Raw -ErrorAction Stop
+        $placeholderCount  = ([regex]::Matches($content, [regex]::Escape($tempVersion))).Count
+
+        if ($placeholderCount -ne 1) {
+            throw "Expected exactly one version placeholder in '$filePath', but found $placeholderCount."
+        }
+
+        $newContent = $content.Replace($tempVersion, $version)
+        Set-Content -LiteralPath $filePath -Value $newContent -NoNewline
+
+    # Step to publish the project; SAP GUI Scripting is late-bound, so the dotnet CLI builds it without COM references
+    - name: Publish
+      shell: pwsh
+      run: dotnet publish ${{ env.sapProjectName }}/${{ env.sapProjectName }}.csproj -c Release -o ${{ env.binariesDirectory }}/${{ env.sapProjectName }}/publish/
+
+    # Step to create a build artifact
+    - name: Create Build Artifact
+      shell: pwsh
+      run: |
+        New-Item -Path "${{ env.artifactStagingDirectory }}" -ItemType Directory
+        Compress-Archive `
+            -Path ${{ env.binariesDirectory }}/${{ env.sapProjectName }}/publish/* `
+            -DestinationPath ${{ env.artifactStagingDirectory }}/sap-recorder.${{ env.buildVersion }}-win-x64.zip
+
+    # Step to upload the build artifact
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sap-recorder-drop
+        path: ${{ env.artifactStagingDirectory }}/*.zip
+
   # Job to build and publish the G4 Recorders Chromium host
   build-chromium-recorder:
     name: Build & Publish G4 Recorders - Chromium ${{ matrix.runtime }} Version ${{ needs.new-version.outputs.buildVersion }}
@@ -301,6 +366,7 @@ jobs:
       - build-uia-recorder
       - build-uia-path-finder
       - build-chromium-recorder
+      - build-sap-recorder
     if: success()
 
     # Set environment variables specific to the release job
@@ -334,6 +400,12 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: chromium-recorder-linux-drop
+
+    # Step to download G4 Recorders - SAP build artifacts
+    - name: Download G4 Recorders - SAP Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: sap-recorder-drop
 
     # Step to create a GitHub release and tag
     - name: Create GitHub Release & Tag v${{ env.buildVersion }}

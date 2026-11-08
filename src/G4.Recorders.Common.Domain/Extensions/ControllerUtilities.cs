@@ -41,6 +41,34 @@ namespace G4.Recorders.Common.Domain.Extensions
         }
 
         /// <summary>
+        /// Writes the G4 SapRecorder ASCII logo to the console, including the specified version number.
+        /// </summary>
+        /// <param name="version">The version number to display in the logo.</param>
+        public static void WriteSapAsciiLogo(string version)
+        {
+            var logo = new string[]
+            {
+                "  ____              ____           _          ",
+                " / ___|  __ _ _ __ |  _ \\ ___  ___| | __     ",
+                " \\___ \\ / _` | '_ \\| |_) / _ \\/ _ \\ |/ /     ",
+                "  ___) | (_| | |_) |  __/  __/  __/   <      ",
+                " |____/ \\__,_| .__/|_|   \\___|\\___|_|\\_\\     ",
+                "             |_|                              ",
+                "            G4 - SAP Recorder                 ",
+                "            Powered by SAP GUI Scripting      ",
+                "                                              ",
+                "  Version: " + version + "                    ",
+                "  Project: https://github.com/g4-api/g4-recorders",
+                "                                              "
+             };
+
+            // Replace any previous console output with the banner, using UTF-8 so the art renders unchanged.
+            Console.Clear();
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            Console.WriteLine(string.Join("\n", logo));
+        }
+
+        /// <summary>
         /// Writes the G4 UiaRecorder ASCII logo to the console, including the specified version number.
         /// </summary>
         /// <param name="version">The version number to display in the logo.</param>

@@ -8,11 +8,12 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-// G4.Recorders.ClientApp is a manual test harness: it connects to both the Uia and Chromium
+// G4.Recorders.ClientApp is a manual test harness: it connects to the Uia, Chromium, and SAP
 // recorder SignalR hubs and prints every recorder event they broadcast. UIA events stream
 // automatically once the Uia recorder host is running (it captures global desktop input)
 // Chromium events require a browser with the recorder extension, which this client can launch
-// via the 's' key (StartRecorder).
+// via the 's' key (StartRecorder). SAP events stream once the SAP recorder host runs and SAP GUI
+// (or the SAP GUI simulator) is open; each SAP message carries user32 and/or nativeSap events.
 
 // Verbose starts from the command line and can be toggled at runtime with 'v'.
 var isVerbose = args.Contains("--verbose") || args.Contains("-v");
@@ -23,6 +24,9 @@ var consoleLock = new object();
 // The process id of the last browser this client started, used by StopRecorder.
 int? lastChromiumProcessId = null;
 
+// The process id of the SAP Logon the SAP recorder launched for this client, used by StopRecorder.
+int? lastSapLogonProcessId = null;
+
 // Load hub URLs and the Chromium binary from appsettings.json (copied next to the executable).
 var configuration = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
@@ -31,6 +35,7 @@ var configuration = new ConfigurationBuilder()
 
 var uiaUrl = configuration["Hubs:UiaUrl"] ?? "http://localhost:9955/hub/v4/g4/peek";
 var chromiumUrl = configuration["Hubs:ChromiumUrl"] ?? "http://localhost:9956/hub/v4/g4/peek";
+var sapUrl = configuration["Hubs:SapUrl"] ?? "http://localhost:9957/hub/v4/g4/peek";
 var chromiumBinary = configuration["Chromium:BinaryPath"] ?? string.Empty;
 var chromiumArguments = configuration.GetSection("Chromium:Arguments").Get<string[]>() ?? [];
 
@@ -38,17 +43,44 @@ var chromiumArguments = configuration.GetSection("Chromium:Arguments").Get<strin
 // to one source without editing appsettings (for example: --no-uia, or --chromium to force on).
 var isUiaEnabled = configuration.GetValue("Hubs:UiaEnabled", defaultValue: true);
 var isChromiumEnabled = configuration.GetValue("Hubs:ChromiumEnabled", defaultValue: true);
+var isSapEnabled = configuration.GetValue("Hubs:SapEnabled", defaultValue: true);
 
 if (args.Contains("--no-uia")) { isUiaEnabled = false; }
 if (args.Contains("--uia")) { isUiaEnabled = true; }
 if (args.Contains("--no-chromium")) { isChromiumEnabled = false; }
 if (args.Contains("--chromium")) { isChromiumEnabled = true; }
+if (args.Contains("--no-sap")) { isSapEnabled = false; }
+if (args.Contains("--sap")) { isSapEnabled = true; }
 
-if (!isUiaEnabled && !isChromiumEnabled)
+// Read the SAP StartRecorder values; --sap-logon <path> overrides Sap:Logon:Path. Unset values stay null, so the
+// recorder resolves them from its own environment and appsettings.json.
+var sapLogonIndex = Array.IndexOf(args, "--sap-logon");
+var sapLogonPath = sapLogonIndex >= 0 && sapLogonIndex + 1 < args.Length
+    ? args[sapLogonIndex + 1]
+    : NullIfEmpty(configuration["Sap:Logon:Path"]);
+var sapParameters = new
+{
+    sapLogon = new
+    {
+        arguments = NullIfEmptyList(configuration.GetSection("Sap:Logon:Arguments").Get<string[]>()),
+        connection = NullIfEmpty(configuration["Sap:Logon:Connection"]),
+        path = sapLogonPath
+    },
+    scope = new
+    {
+        client = NullIfEmpty(configuration["Sap:Scope:Client"]),
+        sessions = NullIfEmptyList(configuration.GetSection("Sap:Scope:Sessions").Get<string[]>()),
+        systemName = NullIfEmpty(configuration["Sap:Scope:SystemName"])
+    },
+    setRecordMode = configuration.GetValue<bool?>("Sap:Recorder:SetRecordMode"),
+    streams = NullIfEmptyList(configuration.GetSection("Sap:Recorder:Streams").Get<string[]>())
+};
+
+if (!isUiaEnabled && !isChromiumEnabled && !isSapEnabled)
 {
     Console.WriteLine(
-        "Both hubs are disabled. Enable at least one in appsettings.json " +
-        "(Hubs:UiaEnabled / Hubs:ChromiumEnabled) or via --uia / --chromium.");
+        "Every hub is disabled. Enable at least one in appsettings.json " +
+        "(Hubs:UiaEnabled / Hubs:ChromiumEnabled / Hubs:SapEnabled) or via --uia / --chromium / --sap.");
 
     return;
 }
@@ -56,6 +88,7 @@ if (!isUiaEnabled && !isChromiumEnabled)
 // Build a connection only for each enabled hub; each reconnects automatically after first connect.
 var uiaConnection = isUiaEnabled ? CreateConnection(uiaUrl) : null;
 var chromiumConnection = isChromiumEnabled ? CreateConnection(chromiumUrl) : null;
+var sapConnection = isSapEnabled ? CreateConnection(sapUrl) : null;
 
 if (uiaConnection is not null)
 {
@@ -65,6 +98,11 @@ if (uiaConnection is not null)
 if (chromiumConnection is not null)
 {
     RegisterHandlers(chromiumConnection, source: "CHROMIUM", color: ConsoleColor.Green);
+}
+
+if (sapConnection is not null)
+{
+    RegisterHandlers(sapConnection, source: "SAP", color: ConsoleColor.Magenta);
 }
 
 // Cancelled by Ctrl+C or the 'q' key; drives both the connect retries and the key loop shutdown.
@@ -92,7 +130,15 @@ if (chromiumConnection is not null)
     connectTasks.Add(ConnectWithRetryAsync(chromiumConnection, "CHROMIUM", ConsoleColor.Green, cancellation.Token));
 }
 
+if (sapConnection is not null)
+{
+    connectTasks.Add(ConnectWithRetryAsync(sapConnection, "SAP", ConsoleColor.Magenta, cancellation.Token));
+}
+
 await Task.WhenAll(connectTasks);
+
+// Apply this client's SAP values once connected; the recorder fills unset ones from its environment and settings.
+await StartSapRecorderAsync();
 
 // Process key commands until the user quits or Ctrl+C is pressed.
 await RunKeyLoopAsync(cancellation);
@@ -110,6 +156,11 @@ if (chromiumConnection is not null)
     await chromiumConnection.DisposeAsync();
 }
 
+if (sapConnection is not null)
+{
+    await sapConnection.DisposeAsync();
+}
+
 // Creates a hub connection with automatic reconnect (applies only after the first connect).
 HubConnection CreateConnection(string url)
 {
@@ -122,7 +173,7 @@ HubConnection CreateConnection(string url)
 // Subscribes to the recording-event broadcast and reports connection lifecycle changes.
 void RegisterHandlers(HubConnection connection, string source, ConsoleColor color)
 {
-    // Both hubs broadcast the same "ReceiveRecordingEvent" message with a { value: {...} } envelope.
+    // Every hub broadcasts the same "ReceiveRecordingEvent" message with a { value: {...} } envelope.
     connection.On<JsonElement>("ReceiveRecordingEvent", envelope => PrintRecordingEvent(source, color, envelope));
 
     connection.Reconnecting += error =>
@@ -236,6 +287,10 @@ async Task RunKeyLoopAsync(CancellationTokenSource cancellationSource)
                 await StopChromiumAsync();
                 break;
 
+            case ConsoleKey.K:
+                await StopSapLogonAsync();
+                break;
+
             case ConsoleKey.H:
                 WriteBanner();
                 break;
@@ -337,10 +392,61 @@ async Task StopChromiumAsync()
     }
 }
 
+// Sends StartRecorder to the SAP hub and prints the resolved values and the SAP Logon process.
+async Task StartSapRecorderAsync()
+{
+    if (sapConnection is null || sapConnection.State != HubConnectionState.Connected)
+    {
+        return;
+    }
+
+    try
+    {
+        var result = await sapConnection.InvokeAsync<JsonElement>("StartRecorder", sapParameters);
+        var processId = result.GetProperty("processId").GetInt32();
+        var sources = result.GetProperty("options").GetProperty("sources").GetRawText();
+        lastSapLogonProcessId = processId > 0 ? processId : null;
+
+        WriteLine(ConsoleColor.Magenta, $"[SAP] StartRecorder -> processId={processId}  sources={sources}");
+    }
+    catch (Exception error)
+    {
+        WriteLine(ConsoleColor.Red, $"[SAP] StartRecorder failed: {error.Message}");
+    }
+}
+
+// Asks the SAP hub to stop the SAP Logon it launched for this client.
+async Task StopSapLogonAsync()
+{
+    if (sapConnection is null || sapConnection.State != HubConnectionState.Connected || lastSapLogonProcessId is null)
+    {
+        WriteLine(ConsoleColor.Red, "No SAP Logon was launched for this client.");
+
+        return;
+    }
+
+    try
+    {
+        var isStopped = await sapConnection.InvokeAsync<bool>("StopRecorder", lastSapLogonProcessId.Value);
+        WriteLine(ConsoleColor.Magenta, $"[SAP] StopRecorder -> processId={lastSapLogonProcessId} stopped={isStopped}.");
+        lastSapLogonProcessId = null;
+    }
+    catch (Exception error)
+    {
+        WriteLine(ConsoleColor.Red, $"[SAP] StopRecorder failed: {error.Message}");
+    }
+}
+
+// Returns null for empty text, so the recorder resolves the value itself.
+static string NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+// Returns null for an empty list, so the recorder resolves the value itself.
+static string[] NullIfEmptyList(string[] values) => values is { Length: > 0 } ? values : null;
+
 // Prints one event: a compact colored line by default, or the full JSON when verbose is on.
 void PrintRecordingEvent(string source, ConsoleColor color, JsonElement envelope)
 {
-    // Unwrap the { value: {...} } envelope both hubs use; tolerate an unexpected shape.
+    // Unwrap the { value: {...} } envelope every hub uses; tolerate an unexpected shape.
     if (!envelope.TryGetProperty("value", out var recordingEvent))
     {
         WriteLine(color, $"[{source}] event without 'value': {envelope.GetRawText()}");
@@ -348,6 +454,27 @@ void PrintRecordingEvent(string source, ConsoleColor color, JsonElement envelope
         return;
     }
 
+    // SAP messages carry up to two events of the shared shape, one per stream; print each under its stream name.
+    var isSapMessage = recordingEvent.TryGetProperty("user32", out _) || recordingEvent.TryGetProperty("nativeSap", out _);
+    if (isSapMessage)
+    {
+        foreach (var stream in new[] { "user32", "nativeSap" })
+        {
+            if (recordingEvent.TryGetProperty(stream, out var streamEvent))
+            {
+                PrintEvent($"{source}/{stream}", color, streamEvent);
+            }
+        }
+
+        return;
+    }
+
+    PrintEvent(source, color, recordingEvent);
+}
+
+// Prints one event of the shared shape: a compact colored line by default, or the full JSON when verbose is on.
+void PrintEvent(string source, ConsoleColor color, JsonElement recordingEvent)
+{
     if (isVerbose)
     {
         var pretty = JsonSerializer.Serialize(recordingEvent, new JsonSerializerOptions { WriteIndented = true });
@@ -372,16 +499,18 @@ void WriteBanner()
 {
     var uiaLine = isUiaEnabled ? uiaUrl : "(disabled)";
     var chromiumLine = isChromiumEnabled ? chromiumUrl : "(disabled)";
+    var sapLine = isSapEnabled ? sapUrl : "(disabled)";
 
     // Only advertise the Chromium start/stop keys when the Chromium hub is active.
-    var keys = isChromiumEnabled
-        ? "Keys: [s] start Chromium  [x] stop Chromium  [v] verbose  [h] help  [q] quit"
-        : "Keys: [v] verbose  [h] help  [q] quit";
+    var chromiumKeys = isChromiumEnabled ? "[s] start Chromium  [x] stop Chromium  " : string.Empty;
+    var sapKeys = isSapEnabled ? "[k] stop SAP Logon  " : string.Empty;
+    var keys = $"Keys: {chromiumKeys}{sapKeys}[v] verbose  [h] help  [q] quit";
 
     WriteLine(ConsoleColor.White,
         $"G4.Recorders.ClientApp - recorder event monitor{Environment.NewLine}" +
         $"  UIA:      {uiaLine}{Environment.NewLine}" +
         $"  Chromium: {chromiumLine}{Environment.NewLine}" +
+        $"  SAP:      {sapLine}{Environment.NewLine}" +
         keys);
 }
 
