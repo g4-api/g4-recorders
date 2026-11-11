@@ -60,7 +60,7 @@ There is no event-level `offset`. The pointer offset lives in `chain.mouseOffset
 | `name` | string | The accessible name. |
 | `patterns` | array | UIA patterns as `{ "id", "name" }`. |
 | `processId` | number | The process id of the owning process. |
-| `properties` | object | Extra properties. Chromium adds `cssSelector`. SAP adds `Id`, `RelativeId`, `SubType` and `ContainerType`. |
+| `properties` | object | Extra properties. Chromium adds `cssSelector`, and on the trigger node of element events `domContext` and `domContextLength` (see [Chromium events](chromium-events.md#dom-context)). SAP adds `Id`, `RelativeId`, `SubType` and `ContainerType`. |
 | `runtimeId` | array | The UIA runtime id. |
 
 The model also holds an `Element` member, but it is marked `JsonIgnore` and is never sent.

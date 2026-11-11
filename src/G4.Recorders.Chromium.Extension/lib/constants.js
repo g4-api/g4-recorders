@@ -93,6 +93,13 @@
         // How long the mouse must rest over an element before a Hover MoveMouseCursor is
         // recorded. Only used when enabledEvents.hover is on.
         hoverDwellMilliseconds: 5000,
+        // DOM context: element events carry a cleaned, Base64-encoded HTML snapshot of the markup
+        // around the target (properties.domContext on the trigger node), rooted this many ancestors
+        // above it and limited to this size before encoding. Clients use it to heal or optimise
+        // locators; VS Code leaves it out of its flows unless a recorder opts in.
+        isDomContextEnabled: true,
+        domContextAncestorLevels: 2,
+        domContextMaximumKilobytes: 16,
         reconnectDelaysMilliseconds: [0, 2000, 5000, 10000, 30000],
         enabledEvents: {
             click: true,

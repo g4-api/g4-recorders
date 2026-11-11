@@ -9,7 +9,7 @@
  *
  * @remarks
  * This file is the last entry in the manifest content-script list, so the constants,
- * settings, contract, locator, mapper, and catalog modules are already attached to the
+ * settings, contract, locator, DOM context, mapper, and catalog modules are already attached to the
  * shared g4Recorder namespace by the time this code runs.
  */
 (function initializeContentScriptModule(globalScope) {
@@ -53,6 +53,17 @@
     let pointerClientX = 0;
     let pointerClientY = 0;
     let pointerObservedAtMilliseconds = 0;
+
+    // The events whose trigger node carries a DOM context: the element actions a client may want
+    // to heal a locator for. Navigation, scroll, window, frame, and form events act on no element
+    // a locator would target, so they are sent without one.
+    const DOM_CONTEXT_EVENT_NAMES = new Set([
+        "InvokeClick",
+        "InvokeContextClick",
+        "InvokeDoubleClick",
+        "MoveMouseCursor",
+        "SendKeys"
+    ]);
 
     /**
      * Resolves the deepest real target of a DOM event.
@@ -131,6 +142,35 @@
     }
 
     /**
+     * Resolves the DOM context limits for an event, or null when it carries no context.
+     *
+     * @remarks
+     * Compute-only over the module settings cache. The cache is the only source of the user's
+     * DOM context settings in this isolated world, so every chain builder reads them here.
+     *
+     * @param {string} eventName The contract event name, for example "InvokeClick".
+     * @returns {object|null} The limits ({ ancestorLevels, maximumKilobytes }) or null.
+     */
+    function getDomContextOptions(eventName) {
+        // Settings that have not loaded yet, or a switched-off setting, attach no context.
+        const isDomContextEnabled = Boolean(activeSettings && activeSettings.isDomContextEnabled);
+
+        if (!isDomContextEnabled) {
+            return null;
+        }
+
+        // Only element actions a locator targets carry the context.
+        if (!DOM_CONTEXT_EVENT_NAMES.has(eventName)) {
+            return null;
+        }
+
+        return {
+            ancestorLevels: activeSettings.domContextAncestorLevels,
+            maximumKilobytes: activeSettings.domContextMaximumKilobytes
+        };
+    }
+
+    /**
      * Builds a complete recording event from a DOM event.
      *
      * @remarks
@@ -163,11 +203,12 @@
             ? contract.newPoint(pointInput)
             : null;
 
-        // Build the ancestor chain rooted at the target element.
+        // Build the ancestor chain rooted at the target element, with its DOM context when enabled.
         const chain = mapper.newChainFromElement({
             element: targetElement,
             trigger: descriptor.event,
-            point
+            point,
+            domContextOptions: getDomContextOptions(descriptor.event)
         });
 
         // Assemble the top-level event, stamping the page host and capture time.
@@ -337,11 +378,12 @@
             isRedactPasswordsEnabled: activeSettings.isRedactPasswordsEnabled
         });
 
-        // Build the ancestor chain rooted at the typed element.
+        // Build the ancestor chain rooted at the typed element, with its DOM context when enabled.
         const chain = mapper.newChainFromElement({
             element,
             trigger: descriptor.event,
-            point: null
+            point: null,
+            domContextOptions: getDomContextOptions(descriptor.event)
         });
 
         // Stamp the event with the last input time so it orders at typing time, not flush time.
@@ -507,11 +549,12 @@
         });
         const point = contract.newPoint({ xPosition: clientX, yPosition: clientY });
 
-        // Build the ancestor chain rooted at the rested element.
+        // Build the ancestor chain rooted at the rested element, with its DOM context when enabled.
         const chain = mapper.newChainFromElement({
             element,
             trigger: descriptor.event,
-            point
+            point,
+            domContextOptions: getDomContextOptions(descriptor.event)
         });
 
         const recordingEvent = contract.newRecordingEvent({

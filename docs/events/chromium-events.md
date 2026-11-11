@@ -35,6 +35,27 @@ Navigation events (type `Navigation`, top frame, full-page only):
 | `RedoNavigation` | Forward. |
 | `UndoNavigation` | Back. |
 
+## DOM context
+
+Element events carry a snapshot of the markup around their target, so a client can heal or optimise the locator later. The events are `InvokeClick`, `InvokeDoubleClick`, `InvokeContextClick`, `SendKeys` and `MoveMouseCursor`. The snapshot sits on the trigger node, `chain.path[0].properties`:
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `domContext` | string | Base64 of the UTF-8 HTML snapshot. |
+| `domContextLength` | number | The decoded byte count, to check that the whole snapshot was decoded. |
+
+How the snapshot is made:
+
+- It is the outer HTML of the ancestor **Ancestor levels** above the target (default 2). Climbing stops at the document element or a shadow root.
+- The target carries `data-g4-target="true"` in the snapshot. The live page is never changed.
+- `script`, `style`, `noscript` and `template` elements are removed, SVG drawings keep only their root tag, and `on*` handler attributes are removed.
+- The `value` of password inputs and of fields marked `data-sensitive` is blanked, and a sensitive text area loses its text.
+- The decoded snapshot is at most **Maximum snapshot size** (default 16 KB). A snapshot that is too large drops one level at a time, then falls back to the target's opening tag. When even that is too large, the event carries no `domContext`.
+
+The extension options page holds the three settings in the **DOM Context** section. The snapshot is on by default.
+
+To read it, decode the Base64 text as UTF-8 and find the element marked `data-g4-target="true"`.
+
 Context events (type `Context`):
 
 | `event` | Trigger | `value` |

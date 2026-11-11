@@ -34,6 +34,11 @@
         maxStackSizeInput: document.getElementById("max-stack-size-input"),
         hoverDwellField: document.getElementById("hover-dwell-field"),
         hoverDwellInput: document.getElementById("hover-dwell-input"),
+        domContextSwitch: document.getElementById("dom-context-switch"),
+        domContextLevelsField: document.getElementById("dom-context-levels-field"),
+        domContextLevelsInput: document.getElementById("dom-context-levels-input"),
+        domContextSizeField: document.getElementById("dom-context-size-field"),
+        domContextSizeInput: document.getElementById("dom-context-size-input"),
         resetDefaultsButton: document.getElementById("reset-defaults-button"),
         statusMessage: document.getElementById("settings-status-message")
     };
@@ -76,12 +81,29 @@
             ? parsedDwellSeconds * 1000
             : DEFAULT_SETTINGS.hoverDwellMilliseconds;
 
+        // Normalise the DOM context limits: levels may be zero (the target alone), the size must be
+        // at least one kilobyte. Either falls back to its default when blank or invalid.
+        const parsedLevels = parseInt(elements.domContextLevelsInput.value, 10);
+        const isLevelsValid = Number.isFinite(parsedLevels) && parsedLevels >= 0;
+        const domContextAncestorLevels = isLevelsValid
+            ? parsedLevels
+            : DEFAULT_SETTINGS.domContextAncestorLevels;
+
+        const parsedKilobytes = parseInt(elements.domContextSizeInput.value, 10);
+        const isKilobytesValid = Number.isFinite(parsedKilobytes) && parsedKilobytes > 0;
+        const domContextMaximumKilobytes = isKilobytesValid
+            ? parsedKilobytes
+            : DEFAULT_SETTINGS.domContextMaximumKilobytes;
+
         return {
             hubUrl: elements.hubUrlInput.value.trim() || DEFAULT_SETTINGS.hubUrl,
             isAutoConnectEnabled: controls.autoConnect.get(),
             isRedactPasswordsEnabled: controls.redactPasswords.get(),
             maximumStackSize,
             hoverDwellMilliseconds,
+            isDomContextEnabled: controls.domContext.get(),
+            domContextAncestorLevels,
+            domContextMaximumKilobytes,
             reconnectDelaysMilliseconds: getReconnectDelays(elements.reconnectDelaysInput.value),
             enabledEvents
         };
@@ -126,7 +148,8 @@
      * Owns creation of the control instances. The returned handles let the render and read
      * helpers drive each boolean switch and the number field by name.
      *
-     * @returns {object} The control handles ({ autoConnect, redactPasswords, numberField, eventSwitches }).
+     * @returns {object} The control handles ({ autoConnect, redactPasswords, numberField, hoverDwellField,
+     *   domContext, domContextLevelsField, domContextSizeField, eventSwitches }).
      */
     function newControls() {
         // Enhance each event-toggle switch, keyed by its settings key.
@@ -145,6 +168,9 @@
             redactPasswords: formControls.newToggleSwitch(elements.redactPasswordsSwitch),
             numberField: formControls.newNumberField(elements.maxStackSizeField),
             hoverDwellField: formControls.newNumberField(elements.hoverDwellField),
+            domContext: formControls.newToggleSwitch(elements.domContextSwitch),
+            domContextLevelsField: formControls.newNumberField(elements.domContextLevelsField),
+            domContextSizeField: formControls.newNumberField(elements.domContextSizeField),
             eventSwitches
         };
     }
@@ -226,10 +252,13 @@
         elements.maxStackSizeInput.value = String(settingsToShow.maximumStackSize);
         elements.hoverDwellInput.value = String(Math.round(settingsToShow.hoverDwellMilliseconds / 1000));
         elements.reconnectDelaysInput.value = settingsToShow.reconnectDelaysMilliseconds.join(", ");
+        elements.domContextLevelsInput.value = String(settingsToShow.domContextAncestorLevels);
+        elements.domContextSizeInput.value = String(settingsToShow.domContextMaximumKilobytes);
 
         // Sync the boolean switches.
         controls.autoConnect.set(settingsToShow.isAutoConnectEnabled);
         controls.redactPasswords.set(settingsToShow.isRedactPasswordsEnabled);
+        controls.domContext.set(settingsToShow.isDomContextEnabled);
 
         // Sync each per-event switch from the enabledEvents map.
         EVENT_TOGGLE_KEYS.forEach((toggleKey) => {
