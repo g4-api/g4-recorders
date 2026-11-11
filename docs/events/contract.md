@@ -13,6 +13,7 @@ The field names below are the JSON names on the wire. The serializer writes came
 | UIA recorder | `UiaEventCaptureService.cs` | `{ "value": <event> }` |
 | Chromium recorder | `ChromiumEventCaptureService.cs:34` | `{ "value": <event> }` |
 | SAP recorder | `SapRecordingBroadcaster.cs:29` | `{ "value": { "user32": <event>, "nativeSap": <event> } }` (see [SAP messages](sap-message.md)) |
+| Android recorder | `AndroidEventCaptureService.cs` | `{ "value": <event> }` |
 
 ## Event
 
@@ -35,8 +36,8 @@ There is no event-level `offset`. The pointer offset lives in `chain.mouseOffset
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `locator` | string | A locator for the trigger element. UIA and SAP use an XPath. Chromium uses an absolute XPath. |
-| `path` | array | The nodes from the top window down to the trigger element. The last node is the trigger. |
+| `locator` | string | A locator for the trigger element. UIA and SAP use an XPath. Chromium uses an absolute XPath. Android uses an XPath in the UiAutomator2 page-source vocabulary. |
+| `path` | array | The nodes between the top window and the trigger element. UIA and SAP list them from the window down, so the last node is the trigger. Chromium and Android list them from the trigger up, so the first node is the trigger. |
 | `point` | object | The pointer position as `{ "X", "Y" }`, when known. |
 | `mouseOffset` | object | The pointer position inside the trigger element as `{ "x", "y" }`. Set for UIA mouse and wheel events. Chromium never sets it. |
 | `topWindow` | node | The top-level window node, when known. |
@@ -48,19 +49,19 @@ There is no event-level `offset`. The pointer offset lives in `chain.mouseOffset
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `automationId` | string | The automation id. Chromium puts the element `id` here. SAP puts the SAP name here. |
+| `automationId` | string | The automation id. Chromium puts the element `id` here. SAP puts the SAP name here. Android puts the resource id here. |
 | `bounds` | object | `{ "height", "X", "Y", "width" }`. `X` is the left edge and `Y` is the top edge. |
 | `className` | string | The class name. |
 | `controlTypeId` | number | The UIA control type id. Zero where there is no equivalent. |
-| `controlType` | string | The control type. Chromium puts the ARIA role or tag name here. SAP puts the SAP type here. |
-| `frameworkId` | string | The UI framework. SAP uses `SAPGUI`. |
+| `controlType` | string | The control type. Chromium puts the ARIA role or tag name here. SAP puts the SAP type here. Android puts the short view class here. |
+| `frameworkId` | string | The UI framework. SAP uses `SAPGUI`, and Android uses `Android`. |
 | `isTopWindow` | boolean | True for the top-level window. |
 | `isTriggerElement` | boolean | True for the element that caused the event. |
 | `machine` | object | `{ "name", "publicAddress" }`. |
 | `name` | string | The accessible name. |
 | `patterns` | array | UIA patterns as `{ "id", "name" }`. |
 | `processId` | number | The process id of the owning process. |
-| `properties` | object | Extra properties. Chromium adds `cssSelector`, and on the trigger node of element events `domContext` and `domContextLength` (see [Chromium events](chromium-events.md#dom-context)). SAP adds `Id`, `RelativeId`, `SubType` and `ContainerType`. |
+| `properties` | object | Extra properties. Chromium adds `cssSelector`, and on the trigger node of element events `domContext` and `domContextLength` (see [Chromium events](chromium-events.md#dom-context)). SAP adds `Id`, `RelativeId`, `SubType` and `ContainerType`. Android adds the view state and, on the trigger node of element events, `domContext` and `domContextLength` (see [Android events](android-events.md#view-context)). |
 | `runtimeId` | array | The UIA runtime id. |
 
 The model also holds an `Element` member, but it is marked `JsonIgnore` and is never sent.
@@ -71,11 +72,11 @@ The model also holds an `Element` member, but it is marked `JsonIgnore` and is n
 
 | Type | Sent by | Used for |
 | --- | --- | --- |
-| `Keyboard` | UIA, Chromium, SAP | Key presses, typed text, SAP virtual keys. |
-| `Mouse` | UIA, Chromium, SAP | Clicks, wheel, scroll, SAP method calls. |
+| `Keyboard` | UIA, Chromium, SAP, Android | Key presses, typed text, SAP virtual keys, the Android keyboard closing. |
+| `Mouse` | UIA, Chromium, SAP, Android | Clicks, taps, long presses, wheel, scroll, SAP method calls. |
 | `Form` | Chromium, SAP | Form submits, SAP property assignments. |
-| `Navigation` | Chromium | Address-bar navigation, reload, back and forward. |
-| `Context` | Chromium | Frame and window switches. |
+| `Navigation` | Chromium, Android | Address-bar navigation, reload, back and forward; the Android Back key. |
+| `Context` | Chromium, Android | Frame and window switches, Android activity switches. |
 
 ## Event names
 
@@ -94,6 +95,10 @@ The model also holds an `Element` member, but it is marked `JsonIgnore` and is n
 ### Chromium recorder
 
 The Chromium names follow the G4 action style. The full list, with triggers and `value` fields, is in [Chromium events](chromium-events.md).
+
+### Android recorder
+
+The Android names follow the G4 action style too: `InvokeClick`, `InvokeLongClick`, `SendKeys`, `InvokeScroll`, `HideSoftKeyboard`, `SwitchActivity` and `UndoNavigation`. The full list, with triggers and `value` fields, is in [Android events](android-events.md).
 
 ### SAP recorder
 
@@ -151,4 +156,5 @@ A UIA keyboard event as a client receives it.
 
 - [Chromium events](chromium-events.md)
 - [SAP messages](sap-message.md)
+- [Android events](android-events.md)
 - [Build a flow from events](build-a-flow.md)

@@ -6,6 +6,8 @@ All notable user-visible changes to the G4 recorders are listed here. The format
 
 ### Added
 
+- The Android recorder: a host on port 9958 (`G4.Recorders.Android`) and a recorder app (`G4.Recorders.Android.App`) whose accessibility service sends taps, long presses, field text, scrolls, keyboard closes, activity switches and the Back key (`UndoNavigation`) in the shared contract, with UiAutomator2 XPath locators and a view context snapshot. The host prepares and restores the device over adb, and release assets ship for Windows, Linux and macOS.
+- The monitor app (`G4.Recorders.ClientApp`) can watch the Android hub (`Hubs:AndroidEnabled`, `--android`).
 - Chromium element events carry a Base64 DOM context of the markup around the target on the trigger node (`domContext`, `domContextLength`), with settings in the extension options.
 - The SAP recorder host, runtime and release flow (40f3e8a).
 - A screenshot point conversion tool, and an updated `GetScreenshot` (d865e0b).

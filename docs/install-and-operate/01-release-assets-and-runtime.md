@@ -27,18 +27,21 @@ A release holds these files:
 | `sap-recorder.<version>-win-x64.zip` | The SAP GUI recorder | Windows |
 | `chromium-recorder.<version>-win-x64.zip` | The Chromium recorder, with the recorder extension | Windows |
 | `chromium-recorder.<version>-linux-x64.tar.gz` | The Chromium recorder, with the recorder extension | Linux |
+| `android-recorder.<version>-win-x64.zip` | The Android recorder, with the recorder app | Windows |
+| `android-recorder.<version>-linux-x64.tar.gz` | The Android recorder, with the recorder app | Linux |
+| `android-recorder.<version>-osx-x64.tar.gz`, `-osx-arm64.tar.gz` | The Android recorder, with the recorder app | macOS |
 
 ![The assets list of a recorders release](images/01-release-assets.png)
 
 TODO(screenshot): images/01-release-assets.png, the assets list of a release on GitHub.
 
-> **📝 Note:** Only the Chromium recorder has a Linux build. The UIA and SAP recorders target Windows only.
+> **📝 Note:** The Chromium and Android recorders have Linux and macOS builds. The UIA and SAP recorders target Windows only.
 
 ---
 
 ## Step 2: Install the runtime
 
-The Chromium recorder is published as a framework-dependent app, so the .NET 10 runtime must be installed on the machine. The UIA and SAP projects target `net10.0-windows`, and the repository README lists ".NET 10 Runtime/SDK" as the requirement for all of them.
+The Chromium and Android recorders are published as framework-dependent apps, so the .NET 10 runtime must be installed on the machine. The UIA and SAP projects target `net10.0-windows`, and the repository README lists ".NET 10 Runtime/SDK" as the requirement for all of them.
 
 1. Open a terminal.
 2. Run the command below.
@@ -66,6 +69,8 @@ If there is no such line, install the .NET 10 runtime before you go on.
    | SAP | `G4.Recorders.Sap.exe` |
    | Chromium on Windows | `G4.Recorders.Chromium.exe` |
    | Chromium on Linux | `G4.Recorders.Chromium.dll`, started with `dotnet` |
+   | Android on Windows | `G4.Recorders.Android.exe` |
+   | Android on Linux or macOS | `G4.Recorders.Android.dll`, started with `dotnet` |
 
 > **💡 Tip:** Unpack each recorder to its own folder. Each one has its own `appsettings.json`, and you will edit them separately in later modules.
 

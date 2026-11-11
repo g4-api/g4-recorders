@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The recorder settings. Keys match SettingsStore; per-event switches are "event." plus the event name. -->
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory app:title="@string/settings_connection">
+        <EditTextPreference
+            app:defaultValue="http://localhost:9958/hub/v4/g4/peek"
+            app:key="hubUrl"
+            app:title="@string/settings_hub_url"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:key="targetPackage"
+            app:title="@string/settings_target_package"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="isAutoConnectEnabled"
+            app:title="@string/settings_auto_connect" />
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:key="isRedactPasswordsEnabled"
+            app:title="@string/settings_redact_passwords" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/settings_view_context">
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="isViewContextEnabled"
+            app:title="@string/settings_view_context_enabled" />
+        <EditTextPreference
+            app:defaultValue="2"
+            app:key="viewContextAncestorLevels"
+            app:title="@string/settings_view_context_levels"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:defaultValue="16"
+            app:key="viewContextMaximumKilobytes"
+            app:title="@string/settings_view_context_size"
+            app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/settings_events">
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="event.InvokeClick"
+            app:title="InvokeClick" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="event.InvokeLongClick"
+            app:title="InvokeLongClick" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="event.SendKeys"
+            app:title="SendKeys" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="event.InvokeScroll"
+            app:title="InvokeScroll" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="event.HideSoftKeyboard"
+            app:title="HideSoftKeyboard" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="event.SwitchActivity"
+            app:title="SwitchActivity" />
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="event.UndoNavigation"
+            app:title="UndoNavigation" />
+    </PreferenceCategory>
+</PreferenceScreen>

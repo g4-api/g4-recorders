@@ -1,6 +1,6 @@
 # Module 4: The SAP recorder
 
-[⬅ Back to overview](README.md) · [⬅ Module 3](03-chromium-recorder.md) · [Next: Module 5 ➡](05-ports-origins-and-logs.md)
+[⬅ Back to overview](README.md) · [⬅ Module 3](03-chromium-recorder.md) · [Next: Module 5 ➡](05-android-recorder.md)
 
 ⏱️ **About 7 minutes**
 
@@ -93,7 +93,7 @@ Stream names must be `user32` or `nativeSap`. At least one must be enabled.
 
 ## Step 4: Read the session status
 
-1. Connect a hub client, as you do in [Module 6](06-verify-with-the-ping-routes.md).
+1. Connect a hub client, as you do in [Module 7](07-verify-with-the-ping-routes.md).
 2. Run the command below.
 
    ```bash
@@ -115,4 +115,4 @@ The list is empty while no hub client is connected, because sessions are attache
 
 ---
 
-**Next:** [Module 5: Ports, origins and log levels](05-ports-origins-and-logs.md)
+**Next:** [Module 5: The Android recorder](05-android-recorder.md)

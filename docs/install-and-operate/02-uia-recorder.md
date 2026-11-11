@@ -41,7 +41,7 @@ The hooks are installed when the recorder starts, but events are captured only w
 - No client connected: the recorder skips the capture work.
 - One or more clients connected: events are captured and sent.
 
-So a quiet console does not mean something is wrong. Connect a client, as you do in [Module 6](06-verify-with-the-ping-routes.md), and then use an application.
+So a quiet console does not mean something is wrong. Connect a client, as you do in [Module 7](07-verify-with-the-ping-routes.md), and then use an application.
 
 ---
 

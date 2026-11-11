@@ -99,7 +99,7 @@ The recorder first asks the extension to close the browser. If the process is st
 
 The extension may talk only to `localhost` and `127.0.0.1`, over `http` and `ws`. These are its `host_permissions`. A recorder on another machine is not reachable from the extension.
 
-On the recorder side, the CORS policy already allows origins that start with `chrome-extension://` and `vscode-webview://`. Other origins need the setting in [Module 5](05-ports-origins-and-logs.md).
+On the recorder side, the CORS policy already allows origins that start with `chrome-extension://` and `vscode-webview://`. Other origins need the setting in [Module 6](06-ports-origins-and-logs.md).
 
 ---
 

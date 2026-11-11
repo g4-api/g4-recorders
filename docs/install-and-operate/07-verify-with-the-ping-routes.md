@@ -1,6 +1,6 @@
-# Module 6: Verify with the ping routes
+# Module 7: Verify with the ping routes
 
-[⬅ Back to overview](README.md) · [⬅ Module 5](05-ports-origins-and-logs.md)
+[⬅ Back to overview](README.md) · [⬅ Module 6](06-ports-origins-and-logs.md)
 
 ⏱️ **About 4 minutes**
 
@@ -25,13 +25,14 @@ The route includes the recorder name. The shared route `/api/v4/g4/ping` does no
    curl http://localhost:9955/api/v4/g4/recorders/uia/ping
    curl http://localhost:9956/api/v4/g4/recorders/chromium/ping
    curl http://localhost:9957/api/v4/g4/recorders/sap/ping
+   curl http://localhost:9958/api/v4/g4/recorders/android/ping
    ```
 
 3. Check that each command prints a small JSON object with `"message": "Pong"` and `"status": "OK"`. It also lists the host name, the operating system and the runtime.
 
-![A terminal showing three ping calls that each answer with Pong](images/06-ping-routes.png)
+![A terminal showing four ping calls that each answer with Pong](images/07-ping-routes.png)
 
-TODO(screenshot): images/06-ping-routes.png, a terminal with the three ping calls.
+TODO(screenshot): images/07-ping-routes.png, a terminal with the four ping calls.
 
 > **💡 Tip:** In Windows PowerShell, type `curl.exe` instead of `curl`.
 
@@ -49,6 +50,7 @@ If a call fails, go to the [troubleshooting page](troubleshooting.md).
    | UIA | `http://localhost:9955/swagger` |
    | Chromium | `http://localhost:9956/swagger` |
    | SAP | `http://localhost:9957/swagger` |
+   | Android | `http://localhost:9958/swagger` |
 
 3. Expand a route and use **Try it out** to call it.
 
@@ -63,11 +65,12 @@ The ping route proves the web service is up. It does not start capture. For that
 | UIA | `http://localhost:9955/hub/v4/g4/peek` |
 | Chromium | `http://localhost:9956/hub/v4/g4/peek` |
 | SAP | `http://localhost:9957/hub/v4/g4/peek` |
+| Android | `http://localhost:9958/hub/v4/g4/peek` |
 
 The simplest client is the monitoring app that ships in the repository as `G4.Recorders.ClientApp`. Any SignalR client works too, and G4 Studio connects the same way.
 
 1. Connect a client to the hub address of the recorder you want.
-2. Use your application. For the Chromium recorder, launch a browser first, as you did in [Module 3](03-chromium-recorder.md).
+2. Use your application. For the Chromium recorder, launch a browser first, as you did in [Module 3](03-chromium-recorder.md). For the Android recorder, start a recording first, as you did in [Module 5](05-android-recorder.md).
 3. Watch the events arrive as `ReceiveRecordingEvent` messages.
 
 > **💡 Tip:** Call `SendHeartbeat` on the hub to check that the connection is alive. The recorder answers with a `ReceiveHeartbeat` message.

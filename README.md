@@ -28,6 +28,11 @@
   * [SignalR Hub Usage (SAP Recorder)](#signalr-hub-usage-sap-recorder)
   * [SAP Requirements and Limits](#sap-requirements-and-limits)
   * [SAP Simulator Tests](#sap-simulator-tests)
+* [Android Recorder — Android Device Recorder](#android-recorder--android-device-recorder)
+  * [How the Android Recorder Works](#how-the-android-recorder-works)
+  * [Starting and Stopping a Recording](#starting-and-stopping-a-recording)
+  * [SignalR Hub Usage (Android Recorder)](#signalr-hub-usage-android-recorder)
+  * [Android Requirements and Limits](#android-requirements-and-limits)
 * [SignalR Client Examples](#signalr-client-examples)
   * [Python Example](#python-example)
   * [JavaScript Example](#javascript-example)
@@ -51,13 +56,14 @@
 
 ## What is this?
 
-G4 Recorders is a **growing suite of recording tools that share one event contract**. It currently ships three recorders, with **Android and iOS recorders planned** to extend the same contract to mobile platforms:
+G4 Recorders is a **growing suite of recording tools that share one event contract**. It currently ships four recorders, with an **iOS recorder planned** to extend the same contract further:
 
 * **UIA Recorder** (`G4.Recorders.Uia`) — a Windows **UI Automation** inspection and recording tool. It peeks at desktop UI elements (returning their **ancestor chain**, like an XPath for Windows UI) and records global keyboard and mouse events enriched with UI context.
 * **Chromium Recorder** (`G4.Recorders.Chromium`) — a **browser** recording tool. A bundled Chromium **recorder extension** captures in-page interactions (with a DOM locator chain) and streams them to a hub, which relays them to consumers.
 * **SAP Recorder** (`G4.Recorders.Sap`) — a **SAP GUI for Windows** recording tool. It peeks at SAP GUI controls through SAP GUI Scripting and records two streams at once: user input (`user32`) and SAP's own actions (`nativeSap`).
+* **Android Recorder** (`G4.Recorders.Android`) — an **Android device** recording tool. A bundled **recorder app** (`G4.Recorders.Android.App`) captures taps, typed text, scrolls and the Back key in any app through an accessibility service, with UiAutomator2 XPath locators, and streams them to the hub.
 
-Every recorder in the suite **broadcasts the same `ReceiveRecordingEvent` message over SignalR**, so a consumer can watch interactions across desktop, browser, and (in the future) mobile platforms through a single, uniform contract.
+Every recorder in the suite **broadcasts the same `ReceiveRecordingEvent` message over SignalR**, so a consumer can watch interactions across desktop, browser and Android through a single, uniform contract.
 
 Use cases:
 
@@ -75,6 +81,7 @@ Use cases:
 | **UIA Recorder**     | Windows desktop (global input)   | `9955`   | Automatically (always-on capture)    | `peek` + `ping` |
 | **Chromium Recorder** | Chromium browser (via extension) | `9956`   | When a recorder browser is running   | `peek` + `ping` |
 | **SAP Recorder**     | SAP GUI (input and SAP actions)  | `9957`   | While a hub client is connected      | UIA surface + `status` + `logon` |
+| **Android Recorder** | Android device (via recorder app) | `9958`   | When a recording is started on a device | `device` + `observe` + `element` + `ping` |
 
 All hubs share the path `/hub/v4/g4/peek` and emit the same `ReceiveRecordingEvent` payload (see [Recording Event Contract](#recording-event-contract-shared)).
 
@@ -93,6 +100,7 @@ All hubs share the path `/hub/v4/g4/peek` and emit the same `ReceiveRecordingEve
    * `G4.Recorders.Uia.exe` — desktop recorder + peek API (listens on `9955`). Run **as administrator** for global hooks.
    * `G4.Recorders.Chromium.exe` — browser recorder hub (listens on `9956`).
    * `G4.Recorders.Sap.exe` — SAP GUI recorder + peek API (listens on `9957`); no administrator rights needed.
+   * `G4.Recorders.Android.exe` — Android recorder hub (listens on `9958`); needs adb and a connected device.
 
 ### Verify the Services
 
@@ -106,10 +114,15 @@ curl http://localhost:9955/api/v4/g4/recorders/uia/ping
 # Chromium Recorder
 curl http://localhost:9956/api/v4/g4/recorders/chromium/ping
 # Output: Pong
+
+# Android Recorder
+curl http://localhost:9958/api/v4/g4/recorders/android/ping
+# Output: Pong
 ```
 
 * UIA Recorder Swagger: `http://localhost:9955/swagger`
 * Chromium Recorder Swagger: `http://localhost:9956/swagger`
+* Android Recorder Swagger: `http://localhost:9958/swagger`
 
 > **CORS tip:** If you call from a webview or browser, ensure your origin is allowed via the `ORIGINS` env var or `AllowedOrigins` config. VS Code webviews (`vscode-webview://`) and the Chromium recorder extension (`chrome-extension://`) are already handled.
 
@@ -527,9 +540,94 @@ variable, then the `Environment` section of the test project's `appsettings.json
 
 ---
 
+## Android Recorder — Android Device Recorder
+
+Android Recorder listens on **`http://localhost:9958`**. Like the Chromium recorder, it captures nothing by itself: a
+**recorder app** on the device produces the events, and the host relays them. The host installs and configures the app
+over **adb**, so the device needs no manual setup beyond USB debugging.
+
+### How the Android Recorder Works
+
+1. A client starts a recording (`StartRecorder`, or `POST .../recorder/device`) with Appium-style capabilities.
+2. The host installs the recorder app, maps port `9958` on the device to the host with `adb reverse`, hands the app the
+   hub address, switches on the app's accessibility service and starts the application under test.
+3. The app's accessibility service sees every tap, text change, scroll and screen change, builds the full contract
+   event (UiAutomator2 XPath locator, chain, view context) and invokes `SendRecordingEvent`.
+4. The hub re-broadcasts each event as `ReceiveRecordingEvent`, the same message and envelope every recorder uses.
+5. On `StopRecorder`, the host sends `CloseRecorder` so the app sends its last field and switches itself off, then
+   stops the application and puts the device's accessibility settings back exactly as they were.
+
+The event catalog, locator rules and view context are in [docs/events/android-events.md](docs/events/android-events.md).
+The app has its own guide: [`src/G4.Recorders.Android.App/README.md`](src/G4.Recorders.Android.App/README.md).
+
+### Starting and Stopping a Recording
+
+`StartRecorder` takes the same driver parameters a G4 `AndroidDriver` flow replays with. Every value is optional:
+
+```json
+{
+    "capabilities": {
+        "alwaysMatch": {
+            "appium:udid": "emulator-5554",
+            "appium:appPackage": "com.example.app",
+            "appium:appActivity": ".MainActivity",
+            "appium:app": ""
+        }
+    }
+}
+```
+
+| Capability | Effect when set | When empty |
+| --- | --- | --- |
+| `appium:udid` | Uses that device | Uses the only connected device |
+| `appium:appPackage` | Starts and records that app | Records every app |
+| `appium:appActivity` | Starts that activity | Starts the app's launcher activity |
+| `appium:app` | Installs that APK from the host first | Installs nothing |
+
+It returns the application's process id, or a negative id when no application was started. Pass it to
+`StopRecorder(processId)`. Over REST:
+
+```bash
+curl -X POST http://localhost:9958/api/v4/g4/recorders/android/recorder/device \
+     -H "Content-Type: application/json" \
+     -d '{"capabilities":{"alwaysMatch":{"appium:appPackage":"com.android.settings"}}}'
+curl -X DELETE http://localhost:9958/api/v4/g4/recorders/android/recorder/device/12345
+```
+
+### SignalR Hub Usage (Android Recorder)
+
+**Hub URL:** `http://localhost:9958/hub/v4/g4/peek`
+
+**Client → Server Methods:**
+
+* `StartRecorder(driverParameters)` → returns the application process id, or a negative session id
+* `StopRecorder(processId)` → returns `true` when the id belongs to a recording this host started
+* `FlushRecorder()` → waits until the app has sent every event captured before the call
+* `SendHeartbeat()`, `SendPeekAt({ X, Y })`, `SendPeekFocused()`, `SendPeekCurrent()`
+* `RegisterRecorder()`, `SendRecordingEvent(event)`, `SendPeekResponse(response)`, `SendFlushResponse(requestId)` — used
+  by the **recorder app**; consumers do not call these
+
+**Server → Client Events:**
+
+* `ReceiveHeartbeat`, `ReceivePeek`, `ReceiveRecordingEvent`
+* `CloseRecorder`, `ReceivePeekRequest`, `ReceiveFlushRequest` — sent to the **recorder app**
+
+### Android Requirements and Limits
+
+1. The host needs the Android SDK platform-tools (adb), found through `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the G4
+   sandbox (`android/platform-tools`) or the `PATH`. The G4 sandbox does not ship adb.
+2. Version 1 reaches devices through `adb reverse`, so it supports USB devices and emulators. Wi-Fi devices are not
+   supported yet.
+3. The recorder app is signed with the build machine's debug key. A device holding an app from another machine gets it
+   reinstalled, which resets the app's settings.
+4. `InvokeLongClick` and `SwitchActivity` have no replay plugin yet; the VS Code template leaves them out of the flow.
+5. `GET observe` captures the device screen through adb. `point`, `ground` and `focus` answer `501 Not Implemented`.
+
+---
+
 ## SignalR Client Examples
 
-The **listening** pattern is identical for all hubs. Only the URL changes (`9955` for UIA Recorder, `9956` for Chromium Recorder, `9957` for SAP Recorder). The Chromium-only `StartRecorder`/`StopRecorder` calls are shown alongside.
+The **listening** pattern is identical for all hubs. Only the URL changes (`9955` for UIA Recorder, `9956` for Chromium Recorder, `9957` for SAP Recorder, `9958` for Android Recorder). The Chromium-only `StartRecorder`/`StopRecorder` calls are shown alongside.
 
 UIA and Chromium messages hold one event in `value`. A SAP message holds up to two events, `value.user32` and `value.nativeSap`, so each sample unwraps both shapes. The full field lists are in [docs/events](docs/events/contract.md).
 

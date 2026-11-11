@@ -28,6 +28,14 @@ These messages are explained in [install-and-operate/troubleshooting.md](install
 | The Chromium recorder extension did not answer the peek request in time | Chromium |
 | SAP GUI Scripting is not available | SAP |
 | SAP Logon was not found on the recorder host | SAP |
+| adb was not found on the recorder host | Android |
+| No Android device is connected | Android |
+| More than one Android device is connected; set appium:udid to choose one | Android |
+| Recorder app not found on the recorder host | Android |
+| Installing g4-recorder.apk failed | Android |
+| Failed to start PACKAGE on device SERIAL | Android |
+| No Android recorder app is connected | Android |
+| The Android recorder failed to STEP while stopping | Android |
 | SAP Logon did not start | SAP |
 | Failed to install the input hooks; the user32 stream is incomplete | SAP |
 | A recording is already running with different values | SAP |
