@@ -28,9 +28,11 @@ import java.util.concurrent.TimeUnit
  * Events recorded while the connection is down are dropped, like the extension does, so a stale backlog never
  * flushes into a later session.
  *
- * @property listener Receives the host's requests on the executor thread.
+ * @param listener Receives the host's requests on the executor thread.
  */
-class RecorderHubConnection(private val listener: Listener) {
+class RecorderHubConnection(
+    private val listener: Listener,
+) {
     // Runs connects, sends and responses one at a time in submission order.
     private val executor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
 
@@ -132,8 +134,12 @@ class RecorderHubConnection(private val listener: Listener) {
     /**
      * Sends one recording event to the host for re-broadcast.
      *
+     * The SignalR Java client and RxJava report every transport failure as a RuntimeException subclass, so a failed
+     * send is caught as RuntimeException, logged, and kept as the last error for the status screen.
+     *
      * @param recordingEvent The event in contract shape.
      */
+    @Suppress("TooGenericExceptionCaught")
     fun sendRecordingEvent(recordingEvent: Map<String, Any?>) {
         executor.execute {
             // Drop events while disconnected so a backlog never leaks into a later session.
@@ -155,6 +161,9 @@ class RecorderHubConnection(private val listener: Listener) {
     }
 
     // Closes the current connection on the executor thread, ignoring a transport that already failed.
+    // The SignalR Java client and RxJava report every transport failure as a RuntimeException subclass, so this
+    // function catches RuntimeException and keeps the reason for the status screen.
+    @Suppress("TooGenericExceptionCaught")
     private fun closeConnection() {
         val current = connection ?: return
         connection = null
@@ -167,6 +176,9 @@ class RecorderHubConnection(private val listener: Listener) {
     }
 
     // Opens and registers a connection on the executor thread; a failure schedules the next retry.
+    // The SignalR Java client and RxJava report every transport failure as a RuntimeException subclass, so this
+    // function catches RuntimeException and keeps the reason for the status screen.
+    @Suppress("TooGenericExceptionCaught")
     private fun connect(connectGeneration: Int) {
         // A stop or another start superseded this attempt.
         if (connectGeneration != generation) {
@@ -177,10 +189,12 @@ class RecorderHubConnection(private val listener: Listener) {
 
         try {
             // Skip negotiation and use WebSockets only, the same transport the Chrome extension uses.
-            val current = HubConnectionBuilder.create(hubUrl)
-                .withTransport(TransportEnum.WEBSOCKETS)
-                .shouldSkipNegotiate(true)
-                .build()
+            val current =
+                HubConnectionBuilder
+                    .create(hubUrl)
+                    .withTransport(TransportEnum.WEBSOCKETS)
+                    .shouldSkipNegotiate(true)
+                    .build()
             registerHandlers(current, connectGeneration)
             connection = current
 
@@ -204,28 +218,39 @@ class RecorderHubConnection(private val listener: Listener) {
     }
 
     // Wires the host's requests and the close callback of one connection.
-    private fun registerHandlers(current: HubConnection, connectGeneration: Int) {
+    private fun registerHandlers(
+        current: HubConnection,
+        connectGeneration: Int,
+    ) {
         current.on("CloseRecorder", Action { listener.onCloseRequested() })
         current.on("ReceiveFlushRequest", Action1<String> { requestId -> listener.onFlushRequested(requestId) }, String::class.java)
-        current.on("ReceivePeekRequest", Action1<PeekRequestModel> { request -> listener.onPeekRequested(request) }, PeekRequestModel::class.java)
+        current.on(
+            "ReceivePeekRequest",
+            Action1<PeekRequestModel> { request ->
+                listener.onPeekRequested(request)
+            },
+            PeekRequestModel::class.java,
+        )
 
         // A dropped transport retries with backoff unless the app stopped or replaced this connection.
-        current.onClosed(OnClosedCallback { exception ->
-            if (connectGeneration != generation) {
-                return@OnClosedCallback
-            }
-
-            RecorderState.lastError = exception?.message.orEmpty()
-            executor.execute {
-                // A connection the app closed itself is already detached and needs no retry.
-                if (connection !== current) {
-                    return@execute
+        current.onClosed(
+            OnClosedCallback { exception ->
+                if (connectGeneration != generation) {
+                    return@OnClosedCallback
                 }
 
-                connection = null
-                scheduleReconnect(connectGeneration)
-            }
-        })
+                RecorderState.lastError = exception?.message.orEmpty()
+                executor.execute {
+                    // A connection the app closed itself is already detached and needs no retry.
+                    if (connection !== current) {
+                        return@execute
+                    }
+
+                    connection = null
+                    scheduleReconnect(connectGeneration)
+                }
+            },
+        )
     }
 
     // Schedules the next connect with the extension's backoff delays, staying on the last delay once exhausted.
@@ -241,7 +266,13 @@ class RecorderHubConnection(private val listener: Listener) {
     }
 
     // Queues a hub invocation behind every earlier send; it is dropped while disconnected.
-    private fun submitInvocation(method: String, argument: Any) {
+    // The SignalR Java client and RxJava report every transport failure as a RuntimeException subclass, so this
+    // function catches RuntimeException and keeps the reason for the status screen.
+    @Suppress("TooGenericExceptionCaught")
+    private fun submitInvocation(
+        method: String,
+        argument: Any,
+    ) {
         executor.execute {
             val current = connection ?: return@execute
 
@@ -260,12 +291,14 @@ class RecorderHubConnection(private val listener: Listener) {
     private companion object {
         // Waits for a SignalR operation and turns a timeout into a failure, so a stalled host is never read as
         // an accepted call.
-        fun awaitCompletion(operation: Completable, timeoutSeconds: Long, name: String) {
+        fun awaitCompletion(
+            operation: Completable,
+            timeoutSeconds: Long,
+            name: String,
+        ) {
             val isCompleted = operation.blockingAwait(timeoutSeconds, TimeUnit.SECONDS)
 
-            if (!isCompleted) {
-                throw IllegalStateException("The hub did not complete $name within $timeoutSeconds seconds.")
-            }
+            check(isCompleted) { "The hub did not complete $name within $timeoutSeconds seconds." }
         }
 
         // Log tag of the recorder app.

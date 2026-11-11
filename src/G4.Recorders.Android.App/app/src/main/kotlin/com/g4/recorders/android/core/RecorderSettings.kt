@@ -23,7 +23,7 @@ data class RecorderSettings(
     val isViewContextEnabled: Boolean = true,
     val viewContextAncestorLevels: Int = 2,
     val viewContextMaximumKilobytes: Int = 16,
-    val enabledEvents: Set<String> = ALL_EVENT_NAMES
+    val enabledEvents: Set<String> = ALL_EVENT_NAMES,
 ) {
     /**
      * Tests whether an event name is recorded.
@@ -31,23 +31,25 @@ data class RecorderSettings(
      * @param eventName The contract event name.
      * @return True when the event is enabled.
      */
-    fun testEventEnabled(eventName: String): Boolean {
-        return enabledEvents.contains(eventName)
-    }
+    fun isEventEnabled(eventName: String): Boolean = enabledEvents.contains(eventName)
 
+    /**
+     * Defaults shared by the settings screen and the capture core.
+     */
     companion object {
         /** The hub on the reversed recorder port; `adb reverse` maps the device's localhost to the host. */
         const val DEFAULT_HUB_URL = "http://localhost:9958/hub/v4/g4/peek"
 
         /** Every event name the recorder can send, all on by default. */
-        val ALL_EVENT_NAMES: Set<String> = setOf(
-            EventCatalog.INVOKE_CLICK,
-            EventCatalog.INVOKE_LONG_CLICK,
-            EventCatalog.SEND_KEYS,
-            EventCatalog.INVOKE_SCROLL,
-            EventCatalog.HIDE_SOFT_KEYBOARD,
-            EventCatalog.SWITCH_ACTIVITY,
-            EventCatalog.UNDO_NAVIGATION
-        )
+        val ALL_EVENT_NAMES: Set<String> =
+            setOf(
+                EventCatalog.INVOKE_CLICK,
+                EventCatalog.INVOKE_LONG_CLICK,
+                EventCatalog.SEND_KEYS,
+                EventCatalog.INVOKE_SCROLL,
+                EventCatalog.HIDE_SOFT_KEYBOARD,
+                EventCatalog.SWITCH_ACTIVITY,
+                EventCatalog.UNDO_NAVIGATION,
+            )
     }
 }

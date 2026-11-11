@@ -10,10 +10,13 @@ package com.g4.recorders.android.core
  * Chains run target first, the Chromium orientation, because the Hub converts Android events with its Chromium
  * rule builder.
  *
- * @property machineName Name reported for the device, `Build.MODEL` on Android.
- * @property machineAddress Address reported for the device, its serial number on Android.
+ * @param machineName Name reported for the device, `Build.MODEL` on Android.
+ * @param machineAddress Address reported for the device, its serial number on Android.
  */
-class NodeMapper(private val machineName: String, private val machineAddress: String) {
+class NodeMapper(
+    private val machineName: String,
+    private val machineAddress: String,
+) {
     /**
      * Returns the contract chain of a target node.
      *
@@ -27,11 +30,25 @@ class NodeMapper(private val machineName: String, private val machineAddress: St
 
         // Build the path from the target up; only the trigger node carries the view context.
         val path = mutableListOf<Map<String, Any?>>()
-        path.add(newNode(NodeOptions(node = target, activity = options.activity, isTrigger = true, isTopWindow = ancestors.isEmpty(), viewContext = options.viewContext)))
+        path.add(
+            newNode(
+                NodeOptions(
+                    node = target,
+                    activity = options.activity,
+                    isTrigger = true,
+                    isTopWindow = ancestors.isEmpty(),
+                    viewContext = options.viewContext,
+                ),
+            ),
+        )
 
         for ((index, ancestor) in ancestors.withIndex()) {
             val isRoot = index == ancestors.lastIndex
-            path.add(newNode(NodeOptions(node = ancestor, activity = options.activity, isTrigger = false, isTopWindow = isRoot, viewContext = null)))
+            path.add(
+                newNode(
+                    NodeOptions(node = ancestor, activity = options.activity, isTrigger = false, isTopWindow = isRoot, viewContext = null),
+                ),
+            )
         }
 
         // Use the event's own point when it has one, else the center of the target, where a replayed tap lands.
@@ -44,7 +61,7 @@ class NodeMapper(private val machineName: String, private val machineAddress: St
             "path" to path,
             "point" to linkedMapOf("X" to pointX, "Y" to pointY),
             "topWindow" to path.last(),
-            "trigger" to options.trigger
+            "trigger" to options.trigger,
         )
     }
 
@@ -57,15 +74,14 @@ class NodeMapper(private val machineName: String, private val machineAddress: St
      * @param trigger The event that produced the chain.
      * @return The empty chain map.
      */
-    fun newEmptyChain(trigger: String): Map<String, Any?> {
-        return linkedMapOf(
+    fun newEmptyChain(trigger: String): Map<String, Any?> =
+        linkedMapOf(
             "locator" to "",
             "path" to emptyList<Any>(),
             "point" to null,
             "topWindow" to null,
-            "trigger" to trigger
+            "trigger" to trigger,
         )
-    }
 
     /**
      * Returns the contract event wrapping a chain and a catalog entry.
@@ -75,16 +91,19 @@ class NodeMapper(private val machineName: String, private val machineAddress: St
      * @param timestamp Unix epoch milliseconds of the capture.
      * @return The event map: `chain`, `event`, `machineName`, `timestamp`, `type` and `value`.
      */
-    fun newEvent(chain: Map<String, Any?>, entry: CatalogEntry, timestamp: Long): Map<String, Any?> {
-        return linkedMapOf(
+    fun newEvent(
+        chain: Map<String, Any?>,
+        entry: CatalogEntry,
+        timestamp: Long,
+    ): Map<String, Any?> =
+        linkedMapOf(
             "chain" to chain,
             "event" to entry.event,
             "machineName" to machineName,
             "timestamp" to timestamp,
             "type" to entry.type,
-            "value" to entry.value
+            "value" to entry.value,
         )
-    }
 
     /**
      * Returns the contract node of one accessibility node.
@@ -98,18 +117,19 @@ class NodeMapper(private val machineName: String, private val machineAddress: St
     fun newNode(options: NodeOptions): Map<String, Any?> {
         // Collect the Android state UiAutomator2 exposes, so a client can rebuild or heal a locator from the chain.
         val node = options.node
-        val properties = linkedMapOf<String, Any?>(
-            "package" to node.packageName,
-            "index" to NodeTree.getSiblingIndex(node),
-            "checkable" to node.isCheckable,
-            "checked" to node.isChecked,
-            "clickable" to node.isClickable,
-            "enabled" to node.isEnabled,
-            "focused" to node.isFocused,
-            "longClickable" to node.isLongClickable,
-            "password" to node.isPassword,
-            "scrollable" to node.isScrollable
-        )
+        val properties =
+            linkedMapOf<String, Any?>(
+                "package" to node.packageName,
+                "index" to NodeTree.getSiblingIndex(node),
+                "checkable" to node.isCheckable,
+                "checked" to node.isChecked,
+                "clickable" to node.isClickable,
+                "enabled" to node.isEnabled,
+                "focused" to node.isFocused,
+                "longClickable" to node.isLongClickable,
+                "password" to node.isPassword,
+                "scrollable" to node.isScrollable,
+            )
 
         // Record the activity on every node so a client can tell which screen the chain belongs to.
         if (options.activity.isNotEmpty()) {
@@ -140,7 +160,7 @@ class NodeMapper(private val machineName: String, private val machineAddress: St
             "patterns" to emptyList<Any>(),
             "processId" to 0,
             "properties" to properties,
-            "runtimeId" to emptyList<Any>()
+            "runtimeId" to emptyList<Any>(),
         )
     }
 
@@ -191,7 +211,7 @@ data class ChainOptions(
     val trigger: String,
     val viewContext: ViewContext?,
     val pointX: Int? = null,
-    val pointY: Int? = null
+    val pointY: Int? = null,
 )
 
 /**
@@ -208,5 +228,5 @@ data class NodeOptions(
     val activity: String,
     val isTrigger: Boolean,
     val isTopWindow: Boolean,
-    val viewContext: ViewContext?
+    val viewContext: ViewContext?,
 )

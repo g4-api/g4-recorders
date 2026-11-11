@@ -1,23 +1,36 @@
 package com.g4.recorders.android.core
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 class NodeMapperTest {
     private val mapper = NodeMapper(machineName = "Pixel 9", machineAddress = "emulator-5554")
 
     @Test
-    fun chainRunsTargetFirstAndMapsTheContractFields() {
+    fun `chain runs target first and maps the contract fields`() {
         // Arrange: window > field.
         val root = FakeNode("android.widget.FrameLayout", bounds = NodeBounds(0, 0, 1080, 2400))
-        val field = root.add(FakeNode("android.widget.EditText", resourceId = "com.app:id/email", text = "me@example.com", hintText = "Email", bounds = NodeBounds(40, 200, 1040, 320), isEditable = true))
+        val field =
+            root.add(
+                FakeNode(
+                    "android.widget.EditText",
+                    resourceId = "com.app:id/email",
+                    text = "me@example.com",
+                    hintText = "Email",
+                    bounds = NodeBounds(40, 200, 1040, 320),
+                    isEditable = true,
+                ),
+            )
         val viewContext = ViewContext(domContext = "PGEvPg==", domContextLength = 4)
 
         // Act.
-        val chain = mapper.newChain(ChainOptions(target = field, activity = "com.app.LoginActivity", trigger = "ViewClicked", viewContext = viewContext))
+        val chain =
+            mapper.newChain(
+                ChainOptions(target = field, activity = "com.app.LoginActivity", trigger = "ViewClicked", viewContext = viewContext),
+            )
 
         // Assert: the chain fields.
         assertEquals("//android.widget.EditText[@resource-id='com.app:id/email']", chain["locator"])
@@ -54,7 +67,7 @@ class NodeMapperTest {
     }
 
     @Test
-    fun containerIsNamedAfterItsFirstLabel() {
+    fun `container is named after its first label`() {
         // Arrange: a row with no text of its own and a title child.
         val root = FakeNode("android.widget.FrameLayout")
         val row = root.add(FakeNode("android.widget.LinearLayout", isClickable = true))
@@ -69,7 +82,7 @@ class NodeMapperTest {
     }
 
     @Test
-    fun scrollContainerKeepsAnEmptyName() {
+    fun `scroll container keeps an empty name`() {
         // Arrange: a scroll view whose first child has a label.
         val root = FakeNode("android.widget.FrameLayout")
         val list = root.add(FakeNode("android.widget.ScrollView", isScrollable = true))
@@ -83,9 +96,11 @@ class NodeMapperTest {
     }
 
     @Test
-    fun emptyChainMatchesTheChromiumContextShape() {
+    fun `empty chain matches the Chromium context shape`() {
+        // Act: build the chain of a page-level event.
         val chain = mapper.newEmptyChain("WindowStateChanged")
 
+        // Assert: no locator, path, point or top window, so the Hub writes no onElement.
         assertEquals("", chain["locator"])
         assertEquals(emptyList<Any>(), chain["path"])
         assertNull(chain["point"])
@@ -93,9 +108,11 @@ class NodeMapperTest {
     }
 
     @Test
-    fun eventWrapsTheEntry() {
+    fun `event wraps the entry`() {
+        // Act: wrap a catalog entry into an event.
         val event = mapper.newEvent(mapper.newEmptyChain("WindowsChanged"), EventCatalog.newHideSoftKeyboard(), 1757618366611)
 
+        // Assert: the contract fields come from the entry, the mapper and the timestamp.
         assertEquals("HideSoftKeyboard", event["event"])
         assertEquals("Keyboard", event["type"])
         assertEquals("Pixel 9", event["machineName"])

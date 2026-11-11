@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The recorder keeps no user data worth restoring: its settings come from the host on every start, so nothing is
+     backed up to the cloud or transferred to a new device (Android 12 and later; allowBackup covers older versions). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="sharedpref" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="sharedpref" />
+    </device-transfer>
+</data-extraction-rules>

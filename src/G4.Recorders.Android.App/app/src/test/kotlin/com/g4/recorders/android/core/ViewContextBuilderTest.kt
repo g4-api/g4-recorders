@@ -1,21 +1,19 @@
 package com.g4.recorders.android.core
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.util.Base64
 
 class ViewContextBuilderTest {
     // Decodes a snapshot back to its XML.
-    private fun decode(viewContext: ViewContext): String {
-        return String(Base64.getDecoder().decode(viewContext.domContext), Charsets.UTF_8)
-    }
+    private fun decode(viewContext: ViewContext): String = String(Base64.getDecoder().decode(viewContext.domContext), Charsets.UTF_8)
 
     @Test
-    fun snapshotIsRootedTwoLevelsUpAndMarksTheTarget() {
+    fun `snapshot is rooted two levels up and marks the target`() {
         // Arrange: window > form > row > button.
         val root = FakeNode("android.widget.FrameLayout")
         val form = root.add(FakeNode("android.widget.LinearLayout", resourceId = "com.app:id/form"))
@@ -37,7 +35,7 @@ class ViewContextBuilderTest {
     }
 
     @Test
-    fun passwordTextIsBlankAndXmlIsEscaped() {
+    fun `password text is blank and XML is escaped`() {
         // Arrange: a password field and a label with XML special characters.
         val root = FakeNode("android.widget.FrameLayout")
         root.add(FakeNode("android.widget.TextView", text = "A & <B> \"C\""))
@@ -52,7 +50,7 @@ class ViewContextBuilderTest {
     }
 
     @Test
-    fun oversizedSnapshotShrinksToTheTargetTag() {
+    fun `oversized snapshot shrinks to the target tag`() {
         // Arrange: a wide sibling list that cannot fit in 1 KB.
         val root = FakeNode("android.widget.FrameLayout")
         val list = root.add(FakeNode("android.widget.LinearLayout"))
@@ -70,7 +68,7 @@ class ViewContextBuilderTest {
     }
 
     @Test
-    fun targetLargerThanBudgetHasNoSnapshot() {
+    fun `target larger than budget has no snapshot`() {
         // Arrange: a label longer than the 1 KB budget on its own.
         val root = FakeNode("android.widget.FrameLayout")
         val label = root.add(FakeNode("android.widget.TextView", text = "x".repeat(2000)))
@@ -80,7 +78,7 @@ class ViewContextBuilderTest {
     }
 
     @Test
-    fun zeroLevelsSnapshotsTheTargetSubtree() {
+    fun `zero levels snapshots the target subtree`() {
         // Arrange: a container target with one child.
         val root = FakeNode("android.widget.FrameLayout")
         val card = root.add(FakeNode("android.widget.LinearLayout", resourceId = "com.app:id/card"))

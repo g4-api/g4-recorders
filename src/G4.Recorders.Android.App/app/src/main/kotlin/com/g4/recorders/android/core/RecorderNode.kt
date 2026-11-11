@@ -82,7 +82,7 @@ interface RecorderNode {
      * @param other The node to compare with.
      * @return True when both refer to the same view.
      */
-    fun testSameNode(other: RecorderNode): Boolean
+    fun isSameNode(other: RecorderNode): Boolean
 }
 
 /**
@@ -93,7 +93,12 @@ interface RecorderNode {
  * @property right Right edge, exclusive.
  * @property bottom Bottom edge, exclusive.
  */
-data class NodeBounds(val left: Int, val top: Int, val right: Int, val bottom: Int) {
+data class NodeBounds(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+) {
     /** Height in pixels, never negative. */
     val height: Int get() = maxOf(0, bottom - top)
 
@@ -107,18 +112,17 @@ data class NodeBounds(val left: Int, val top: Int, val right: Int, val bottom: I
      * @param y Vertical screen coordinate.
      * @return True when the point is inside.
      */
-    fun testContains(x: Int, y: Int): Boolean {
-        return x >= left && x < right && y >= top && y < bottom
-    }
+    fun contains(
+        x: Int,
+        y: Int,
+    ): Boolean = x >= left && x < right && y >= top && y < bottom
 
     /**
      * Converts the rectangle to the UiAutomator2 text form, for example `[0,0][1080,2400]`.
      *
      * @return The bounds text.
      */
-    fun convertToBoundsText(): String {
-        return "[$left,$top][$right,$bottom]"
-    }
+    fun toBoundsText(): String = "[$left,$top][$right,$bottom]"
 }
 
 /**
@@ -174,9 +178,7 @@ object NodeTree {
      * @param node Any node of the window.
      * @return The top ancestor, or the node itself when it has no parent.
      */
-    fun getRoot(node: RecorderNode): RecorderNode {
-        return getAncestors(node).lastOrNull() ?: node
-    }
+    fun getRoot(node: RecorderNode): RecorderNode = getAncestors(node).lastOrNull() ?: node
 
     /**
      * Returns the 0-based position of a node among all children of its parent, the UiAutomator2 `index` attribute.
@@ -186,7 +188,7 @@ object NodeTree {
      */
     fun getSiblingIndex(node: RecorderNode): Int {
         val parent = node.parent ?: return 0
-        val index = parent.children.indexOfFirst { it.testSameNode(node) }
+        val index = parent.children.indexOfFirst { it.isSameNode(node) }
 
         return maxOf(0, index)
     }

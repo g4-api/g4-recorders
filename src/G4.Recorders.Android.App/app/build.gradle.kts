@@ -34,6 +34,9 @@ android {
     testOptions {
         // The core classes under test never touch Android APIs; default values keep stray calls from failing.
         unitTests.isReturnDefaultValues = true
+
+        // Run the JVM unit tests on the JUnit Platform (JUnit Jupiter).
+        unitTests.all { it.useJUnitPlatform() }
     }
 }
 
@@ -42,7 +45,9 @@ dependencies {
     implementation("androidx.preference:preference-ktx:1.2.1")
     implementation("com.microsoft.signalr:signalr:10.0.15")
 
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(platform("org.junit:junit-bom:6.1.3"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 // Copy the signed release APK to the sibling G4.Recorders.Android.App.Drop folder under a fixed name. The .NET host

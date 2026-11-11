@@ -7,7 +7,11 @@ package com.g4.recorders.android.core
  * @property type The contract event type: `Mouse`, `Keyboard` or `Context`.
  * @property value The event payload; an empty map when the event carries none.
  */
-data class CatalogEntry(val event: String, val type: String, val value: Map<String, Any?>)
+data class CatalogEntry(
+    val event: String,
+    val type: String,
+    val value: Map<String, Any?>,
+)
 
 /**
  * Maps recorded Android interactions to contract event names, types and values.
@@ -67,18 +71,14 @@ object EventCatalog {
      *
      * @return The `InvokeClick` entry.
      */
-    fun newClick(): CatalogEntry {
-        return CatalogEntry(event = INVOKE_CLICK, type = TYPE_MOUSE, value = emptyMap())
-    }
+    fun newClick(): CatalogEntry = CatalogEntry(event = INVOKE_CLICK, type = TYPE_MOUSE, value = emptyMap())
 
     /**
      * Returns the entry of the soft keyboard closing.
      *
      * @return The `HideSoftKeyboard` entry.
      */
-    fun newHideSoftKeyboard(): CatalogEntry {
-        return CatalogEntry(event = HIDE_SOFT_KEYBOARD, type = TYPE_KEYBOARD, value = emptyMap())
-    }
+    fun newHideSoftKeyboard(): CatalogEntry = CatalogEntry(event = HIDE_SOFT_KEYBOARD, type = TYPE_KEYBOARD, value = emptyMap())
 
     /**
      * Returns the entry of a long press.
@@ -98,7 +98,10 @@ object EventCatalog {
      * @param notches How many scroll events the gesture coalesced, at least 1.
      * @return The `InvokeScroll` entry.
      */
-    fun newScroll(direction: String, notches: Int): CatalogEntry {
+    fun newScroll(
+        direction: String,
+        notches: Int,
+    ): CatalogEntry {
         val value = mapOf<String, Any?>("direction" to direction, "notches" to maxOf(1, notches))
 
         return CatalogEntry(event = INVOKE_SCROLL, type = TYPE_MOUSE, value = value)
@@ -112,7 +115,11 @@ object EventCatalog {
      * @param isRedactEnabled True when passwords are written as `***`.
      * @return The `SendKeys` entry, `{ text }` or `{ text: "***", isRedacted: true }`.
      */
-    fun newSendKeys(text: String, isPassword: Boolean, isRedactEnabled: Boolean): CatalogEntry {
+    fun newSendKeys(
+        text: String,
+        isPassword: Boolean,
+        isRedactEnabled: Boolean,
+    ): CatalogEntry {
         // Redact before anything else so a password never reaches the payload when the user asked to hide it.
         if (isPassword && isRedactEnabled) {
             val redacted = mapOf<String, Any?>("text" to REDACTED_TEXT, "isRedacted" to true)
@@ -133,7 +140,10 @@ object EventCatalog {
      * @param activity The fully qualified activity class.
      * @return The `SwitchActivity` entry.
      */
-    fun newSwitchActivity(packageName: String, activity: String): CatalogEntry {
+    fun newSwitchActivity(
+        packageName: String,
+        activity: String,
+    ): CatalogEntry {
         val value = mapOf<String, Any?>("package" to packageName, "activity" to activity)
 
         return CatalogEntry(event = SWITCH_ACTIVITY, type = TYPE_CONTEXT, value = value)
@@ -144,9 +154,7 @@ object EventCatalog {
      *
      * @return The `UndoNavigation` entry.
      */
-    fun newUndoNavigation(): CatalogEntry {
-        return CatalogEntry(event = UNDO_NAVIGATION, type = TYPE_NAVIGATION, value = emptyMap())
-    }
+    fun newUndoNavigation(): CatalogEntry = CatalogEntry(event = UNDO_NAVIGATION, type = TYPE_NAVIGATION, value = emptyMap())
 
     /**
      * Resolves the scroll direction of a gesture from its content deltas.
@@ -158,19 +166,20 @@ object EventCatalog {
      * @param deltaY Vertical scroll delta in pixels.
      * @return The direction, or null when nothing moved.
      */
-    fun resolveScrollDirection(deltaX: Int, deltaY: Int): String? {
-        // Ignore an event that reports no movement; Android sends those when a list re-lays out.
-        if (deltaX == 0 && deltaY == 0) {
-            return null
-        }
-
-        // Pick the dominant axis, then its sign.
+    fun resolveScrollDirection(
+        deltaX: Int,
+        deltaY: Int,
+    ): String? {
+        // Ignore an event that reports no movement (Android sends those when a list re-lays out), else pick the
+        // dominant axis, then its sign.
         val isVertical = Math.abs(deltaY) >= Math.abs(deltaX)
 
-        if (isVertical) {
-            return if (deltaY > 0) "Down" else "Up"
+        return when {
+            deltaX == 0 && deltaY == 0 -> null
+            isVertical && deltaY > 0 -> "Down"
+            isVertical -> "Up"
+            deltaX > 0 -> "Right"
+            else -> "Left"
         }
-
-        return if (deltaX > 0) "Right" else "Left"
     }
 }

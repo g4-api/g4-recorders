@@ -24,12 +24,13 @@ class MainActivity : AppCompatActivity() {
     private val refreshHandler = Handler(Looper.getMainLooper())
 
     // Redraws the status and schedules the next redraw.
-    private val refreshRunnable = object : Runnable {
-        override fun run() {
-            showStatus()
-            refreshHandler.postDelayed(this, REFRESH_MILLISECONDS)
+    private val refreshRunnable =
+        object : Runnable {
+            override fun run() {
+                showStatus()
+                refreshHandler.postDelayed(this, REFRESH_MILLISECONDS)
+            }
         }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,12 +74,19 @@ class MainActivity : AppCompatActivity() {
     // Draws the current state.
     private fun showStatus() {
         val settings = SettingsStore.getSettings(this)
-        val serviceText = if (RecorderState.isServiceRunning) getString(R.string.status_service_on) else getString(R.string.status_service_off)
+        val serviceText =
+            if (RecorderState.isServiceRunning) {
+                getString(
+                    R.string.status_service_on,
+                )
+            } else {
+                getString(R.string.status_service_off)
+            }
         val targetText = settings.targetPackage.ifEmpty { getString(R.string.status_all_packages) }
 
         findViewById<TextView>(R.id.service_value).text = serviceText
         findViewById<TextView>(R.id.connection_value).text = RecorderState.connectionState
-        findViewById<TextView>(R.id.events_value).text = RecorderState.eventCount.get().toString()
+        findViewById<TextView>(R.id.events_value).text = getString(R.string.status_events_value, RecorderState.eventCount.get())
         findViewById<TextView>(R.id.hub_value).text = settings.hubUrl
         findViewById<TextView>(R.id.target_value).text = targetText
         findViewById<TextView>(R.id.error_value).text = RecorderState.lastError
@@ -87,11 +95,12 @@ class MainActivity : AppCompatActivity() {
     // Stores the launcher extras; a missing extra keeps the stored value.
     private fun storeLaunchValues(launchIntent: Intent?) {
         val extras = launchIntent?.extras ?: return
-        val values = LaunchValues(
-            hubUrl = extras.getString(SettingsStore.KEY_HUB_URL),
-            targetPackage = extras.getString(SettingsStore.KEY_TARGET_PACKAGE),
-            deviceSerial = extras.getString(SettingsStore.KEY_DEVICE_SERIAL)
-        )
+        val values =
+            LaunchValues(
+                hubUrl = extras.getString(SettingsStore.KEY_HUB_URL),
+                targetPackage = extras.getString(SettingsStore.KEY_TARGET_PACKAGE),
+                deviceSerial = extras.getString(SettingsStore.KEY_DEVICE_SERIAL),
+            )
         SettingsStore.setLaunchValues(this, values)
     }
 

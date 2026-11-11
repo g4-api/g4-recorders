@@ -13,9 +13,11 @@ import com.g4.recorders.android.core.RecorderNode
  * children or parent is an inter-process call to the application under test. The adapter never recycles the
  * wrapped node; Android 13 and later ignore recycling, and on older versions the garbage collector reclaims it.
  *
- * @property info The wrapped node.
+ * @param info The wrapped node.
  */
-class AccessibilityNodeAdapter(private val info: AccessibilityNodeInfo) : RecorderNode {
+class AccessibilityNodeAdapter(
+    private val info: AccessibilityNodeInfo,
+) : RecorderNode {
     override val bounds: NodeBounds by lazy {
         val rectangle = Rect()
         info.getBoundsInScreen(rectangle)
@@ -78,7 +80,7 @@ class AccessibilityNodeAdapter(private val info: AccessibilityNodeInfo) : Record
         if (info.isShowingHintText) "" else info.text?.toString() ?: ""
     }
 
-    override fun testSameNode(other: RecorderNode): Boolean {
+    override fun isSameNode(other: RecorderNode): Boolean {
         // Node infos compare their window and source ids, which identify the view across wrapper instances.
         return other is AccessibilityNodeAdapter && other.info == info
     }

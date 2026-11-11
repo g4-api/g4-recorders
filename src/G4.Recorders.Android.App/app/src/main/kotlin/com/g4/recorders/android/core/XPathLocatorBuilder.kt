@@ -21,46 +21,49 @@ object XPathLocatorBuilder {
      */
     fun getLocator(target: RecorderNode): String {
         // Collect the window once so each candidate is checked against the same snapshot.
-        val root = NodeTree.getRoot(target)
-        val windowNodes = NodeTree.getDescendants(root).toList()
-        val tag = getTag(target)
+        val windowNodes = NodeTree.getDescendants(NodeTree.getRoot(target)).toList()
 
-        // Prefer the resource id because developers keep it stable across releases and languages.
-        val isResourceIdUnique = target.resourceId.isNotEmpty() &&
-            windowNodes.count { it.className == target.className && it.resourceId == target.resourceId } == 1
-
-        if (isResourceIdUnique) {
-            return "//$tag[@resource-id=${convertToXPathLiteral(target.resourceId)}]"
-        }
-
-        // Fall back to the content description, which icon buttons usually carry instead of text.
-        val isDescriptionUnique = target.contentDescription.isNotEmpty() &&
-            windowNodes.count { it.className == target.className && it.contentDescription == target.contentDescription } == 1
-
-        if (isDescriptionUnique) {
-            return "//$tag[@content-desc=${convertToXPathLiteral(target.contentDescription)}]"
-        }
-
-        // Use the visible text only for labels and buttons; an editable field's text is user content that changes.
-        val isTextCandidate = target.text.isNotEmpty() && !target.isEditable && !target.isPassword
-        val isTextUnique = isTextCandidate &&
-            windowNodes.count { it.className == target.className && it.text == target.text } == 1
-
-        if (isTextUnique) {
-            return "//$tag[@text=${convertToXPathLiteral(target.text)}]"
-        }
-
-        // A row or card is often a bare container whose label is a child; reach it through that label. A scrollable
-        // container is skipped, because its children change as the content moves.
-        val labelLocator = if (target.isScrollable) null else getLabelLocator(target, windowNodes)
-
-        if (labelLocator != null) {
-            return labelLocator
-        }
-
-        // Nothing identifies the node, so address it by its position from the hierarchy root.
-        return getAbsolutePath(target)
+        // Try the strategies from the most to the least stable; the absolute path always matches one node.
+        return getAttributeLocator(target, windowNodes)
+            ?: getLabelLocator(target, windowNodes)
+            ?: getAbsolutePath(target)
     }
+
+    // Returns a locator on the first unique identifying attribute: the resource id, which developers keep stable
+    // across releases and languages, then the content description that icon buttons carry, then the visible text of
+    // a label or button. An editable field's text is user content that changes, so it is never used. Returns null
+    // when no attribute is unique in the window.
+    private fun getAttributeLocator(
+        target: RecorderNode,
+        windowNodes: List<RecorderNode>,
+    ): String? {
+        val isTextUsable = !target.isEditable && !target.isPassword
+        val candidates =
+            listOf(
+                "resource-id" to target.resourceId,
+                "content-desc" to target.contentDescription,
+                "text" to if (isTextUsable) target.text else "",
+            )
+
+        // Keep the first non-empty value that no other node of the same class shares.
+        val unique =
+            candidates.firstOrNull { (attribute, value) ->
+                value.isNotEmpty() && windowNodes.count { it.className == target.className && getAttribute(it, attribute) == value } == 1
+            }
+
+        return unique?.let { (attribute, value) -> "//${getTag(target)}[@$attribute=${toXPathLiteral(value)}]" }
+    }
+
+    // Returns the value of one of the identifying attributes of a node, by its UiAutomator2 attribute name.
+    private fun getAttribute(
+        node: RecorderNode,
+        attribute: String,
+    ): String =
+        when (attribute) {
+            "resource-id" -> node.resourceId
+            "content-desc" -> node.contentDescription
+            else -> node.text
+        }
 
     /**
      * Returns a locator that finds a container through a unique label inside it, for example
@@ -73,7 +76,15 @@ object XPathLocatorBuilder {
      * @param windowNodes Every node of the target's window.
      * @return The locator, or null when no descendant label qualifies.
      */
-    fun getLabelLocator(target: RecorderNode, windowNodes: List<RecorderNode>): String? {
+    fun getLabelLocator(
+        target: RecorderNode,
+        windowNodes: List<RecorderNode>,
+    ): String? {
+        // A scrollable container is skipped, because its children change as the content moves.
+        if (target.isScrollable) {
+            return null
+        }
+
         // Search the target's own subtree in document order; the first qualifying label is the most prominent one.
         val labels = NodeTree.getDescendants(target).drop(1).filter { it.text.isNotEmpty() && !it.isEditable && !it.isPassword }
 
@@ -88,8 +99,8 @@ object XPathLocatorBuilder {
             // Walking up from the label, the first node of the target's class must be the target itself.
             val nearest = NodeTree.getAncestors(label).firstOrNull { it.className == target.className }
 
-            if (nearest != null && nearest.testSameNode(target)) {
-                return "//${getTag(label)}[@text=${convertToXPathLiteral(label.text)}]/ancestor::${getTag(target)}[1]"
+            if (nearest != null && nearest.isSameNode(target)) {
+                return "//${getTag(label)}[@text=${toXPathLiteral(label.text)}]/ancestor::${getTag(target)}[1]"
             }
         }
 
@@ -128,24 +139,20 @@ object XPathLocatorBuilder {
      * @param value The raw attribute value.
      * @return The quoted literal.
      */
-    fun convertToXPathLiteral(value: String): String {
-        // Pick the quote character the value does not contain; XPath 1.0 has no escape sequence.
-        if (!value.contains('\'')) {
-            return "'$value'"
+    fun toXPathLiteral(value: String): String =
+        // Pick the quote character the value does not contain; XPath 1.0 has no escape sequence, so a value with
+        // both quotes is split on the single quote and rejoined inside concat().
+        when {
+            !value.contains('\'') -> "'$value'"
+            !value.contains('"') -> "\"$value\""
+            else -> "concat(" + value.split('\'').joinToString(separator = ", \"'\", ") { "'$it'" } + ")"
         }
-
-        if (!value.contains('"')) {
-            return "\"$value\""
-        }
-
-        // Split on the single quote and rejoin the parts with a double-quoted quote inside concat().
-        val parts = value.split('\'').map { "'$it'" }
-
-        return "concat(" + parts.joinToString(separator = ", \"'\", ") + ")"
-    }
 
     // Returns the 1-based position of a node among the parent's children of the same class.
-    private fun getClassPosition(node: RecorderNode, parent: RecorderNode): Int {
+    private fun getClassPosition(
+        node: RecorderNode,
+        parent: RecorderNode,
+    ): Int {
         // Count same-class siblings up to and including the node itself.
         var position = 0
 
@@ -154,7 +161,7 @@ object XPathLocatorBuilder {
                 position++
             }
 
-            if (sibling.testSameNode(node)) {
+            if (sibling.isSameNode(node)) {
                 return maxOf(1, position)
             }
         }
@@ -164,9 +171,7 @@ object XPathLocatorBuilder {
     }
 
     // Returns the XML tag of a node, a wildcard when Android reports no class.
-    private fun getTag(node: RecorderNode): String {
-        return node.className.ifEmpty { "*" }
-    }
+    private fun getTag(node: RecorderNode): String = node.className.ifEmpty { "*" }
 
     // Deepest path the builder follows; real Android trees stay far below it.
     private const val MAXIMUM_DEPTH = 256

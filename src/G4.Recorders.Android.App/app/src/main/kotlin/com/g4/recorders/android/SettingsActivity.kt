@@ -18,7 +18,8 @@ class SettingsActivity : AppCompatActivity() {
 
         // Host the preference screen as the whole content, once; a recreated activity keeps its fragment.
         if (savedInstanceState == null) {
-            supportFragmentManager.beginTransaction()
+            supportFragmentManager
+                .beginTransaction()
                 .replace(android.R.id.content, RecorderPreferenceFragment())
                 .commit()
         }
@@ -28,7 +29,10 @@ class SettingsActivity : AppCompatActivity() {
      * The preference list defined in `res/xml/preferences.xml`.
      */
     class RecorderPreferenceFragment : PreferenceFragmentCompat() {
-        override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+        override fun onCreatePreferences(
+            savedInstanceState: Bundle?,
+            rootKey: String?,
+        ) {
             setPreferencesFromResource(R.xml.preferences, rootKey)
 
             // Number settings are text preferences; show a numeric keyboard for them.

@@ -17,7 +17,7 @@ class FakeNode(
     override val isClickable: Boolean = false,
     override val isScrollable: Boolean = false,
     override val isVisible: Boolean = true,
-    override val packageName: String = "com.example.app"
+    override val packageName: String = "com.example.app",
 ) : RecorderNode {
     private val childList = mutableListOf<FakeNode>()
 
@@ -53,7 +53,5 @@ class FakeNode(
         return child
     }
 
-    override fun testSameNode(other: RecorderNode): Boolean {
-        return other === this
-    }
+    override fun isSameNode(other: RecorderNode): Boolean = other === this
 }

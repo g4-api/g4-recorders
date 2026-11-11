@@ -14,9 +14,11 @@ package com.g4.recorders.android.core
  * A pending entry is always sent before any later event, so the output order is the user's order. The processor is
  * not thread-safe; the service calls it from the main thread only.
  *
- * @property options The collaborators and the clock.
+ * @param options The collaborators and the clock.
  */
-class EventProcessor(private val options: EventProcessorOptions) {
+class EventProcessor(
+    private val options: EventProcessorOptions,
+) {
     // Coalescing window for scroll events.
     private val scrollWindowMilliseconds = options.scrollWindowMilliseconds
 
@@ -71,7 +73,7 @@ class EventProcessor(private val options: EventProcessorOptions) {
         // Send what was typed or scrolled before leaving the screen, so it precedes the navigation in the flow.
         commitPending()
 
-        if (options.settings().testEventEnabled(EventCatalog.UNDO_NAVIGATION)) {
+        if (options.settings().isEventEnabled(EventCatalog.UNDO_NAVIGATION)) {
             emit(options.mapper.newEmptyChain(trigger = "KeyEvent"), EventCatalog.newUndoNavigation(), options.clock())
         }
     }
@@ -112,7 +114,7 @@ class EventProcessor(private val options: EventProcessorOptions) {
         // Send what was typed before the keyboard closed, so the text precedes the hide in the flow.
         commitPending()
 
-        if (options.settings().testEventEnabled(EventCatalog.HIDE_SOFT_KEYBOARD)) {
+        if (options.settings().isEventEnabled(EventCatalog.HIDE_SOFT_KEYBOARD)) {
             emit(options.mapper.newEmptyChain(trigger = "WindowsChanged"), EventCatalog.newHideSoftKeyboard(), options.clock())
         }
     }
@@ -133,12 +135,16 @@ class EventProcessor(private val options: EventProcessorOptions) {
      * @param deltaX Horizontal content delta in pixels.
      * @param deltaY Vertical content delta in pixels.
      */
-    fun onScrolled(node: RecorderNode, deltaX: Int, deltaY: Int) {
+    fun onScrolled(
+        node: RecorderNode,
+        deltaX: Int,
+        deltaY: Int,
+    ) {
         // Ignore disabled scrolls and layout passes that report no movement.
         val settings = options.settings()
         val direction = EventCatalog.resolveScrollDirection(deltaX, deltaY) ?: return
 
-        if (!settings.testEventEnabled(EventCatalog.INVOKE_SCROLL)) {
+        if (!settings.isEventEnabled(EventCatalog.INVOKE_SCROLL)) {
             return
         }
 
@@ -146,13 +152,9 @@ class EventProcessor(private val options: EventProcessorOptions) {
         lastTouchedNode = node
         val now = options.clock()
         val scroll = pendingScroll
-        val isContinued = scroll != null &&
-            scroll.node.testSameNode(node) &&
-            scroll.direction == direction &&
-            now - scroll.lastTimestamp < scrollWindowMilliseconds
 
-        if (isContinued) {
-            pendingScroll = scroll!!.copy(notches = scroll.notches + 1, lastTimestamp = now)
+        if (scroll != null && scroll.isContinuedBy(node, direction, now, scrollWindowMilliseconds)) {
+            pendingScroll = scroll.copy(notches = scroll.notches + 1, lastTimestamp = now)
 
             return
         }
@@ -160,7 +162,10 @@ class EventProcessor(private val options: EventProcessorOptions) {
         // A new gesture starts: send the edited field and the previous gesture first, then open this one.
         commitText()
         commitScroll()
-        val chain = options.mapper.newChain(ChainOptions(target = node, activity = currentActivity, trigger = "ViewScrolled", viewContext = null))
+        val chain =
+            options.mapper.newChain(
+                ChainOptions(target = node, activity = currentActivity, trigger = "ViewScrolled", viewContext = null),
+            )
         pendingScroll = PendingScroll(node = node, chain = chain, direction = direction, notches = 1, timestamp = now, lastTimestamp = now)
     }
 
@@ -170,11 +175,14 @@ class EventProcessor(private val options: EventProcessorOptions) {
      * @param node The edited field.
      * @param text The field content after the change.
      */
-    fun onTextChanged(node: RecorderNode, text: String) {
+    fun onTextChanged(
+        node: RecorderNode,
+        text: String,
+    ) {
         // Typing is recorded only as committed text.
         val settings = options.settings()
 
-        if (!settings.testEventEnabled(EventCatalog.SEND_KEYS)) {
+        if (!settings.isEventEnabled(EventCatalog.SEND_KEYS)) {
             return
         }
 
@@ -185,7 +193,10 @@ class EventProcessor(private val options: EventProcessorOptions) {
 
         // Re-map the chain on every change so the snapshot and state reflect the field as the user left it.
         val viewContext = getViewContext(node, EventCatalog.SEND_KEYS)
-        val chain = options.mapper.newChain(ChainOptions(target = node, activity = currentActivity, trigger = "ViewTextChanged", viewContext = viewContext))
+        val chain =
+            options.mapper.newChain(
+                ChainOptions(target = node, activity = currentActivity, trigger = "ViewTextChanged", viewContext = viewContext),
+            )
         pendingText = PendingText(node = node, chain = chain, text = text, isPassword = node.isPassword, timestamp = options.clock())
     }
 
@@ -198,7 +209,10 @@ class EventProcessor(private val options: EventProcessorOptions) {
      * @param packageName The package of the new window.
      * @param activity The activity class, or empty when the window is not an activity.
      */
-    fun onWindowStateChanged(packageName: String, activity: String) {
+    fun onWindowStateChanged(
+        packageName: String,
+        activity: String,
+    ) {
         // Ignore popups and an unchanged activity, which Android reports again when a window re-lays out.
         val isNewActivity = activity.isNotEmpty() && activity != currentActivity
 
@@ -210,8 +224,12 @@ class EventProcessor(private val options: EventProcessorOptions) {
         commitPending()
         currentActivity = activity
 
-        if (options.settings().testEventEnabled(EventCatalog.SWITCH_ACTIVITY)) {
-            emit(options.mapper.newEmptyChain(trigger = "WindowStateChanged"), EventCatalog.newSwitchActivity(packageName, activity), options.clock())
+        if (options.settings().isEventEnabled(EventCatalog.SWITCH_ACTIVITY)) {
+            emit(
+                options.mapper.newEmptyChain(trigger = "WindowStateChanged"),
+                EventCatalog.newSwitchActivity(packageName, activity),
+                options.clock(),
+            )
         }
     }
 
@@ -234,18 +252,25 @@ class EventProcessor(private val options: EventProcessorOptions) {
     private fun commitTextUnless(node: RecorderNode) {
         val pending = pendingText ?: return
 
-        if (!pending.node.testSameNode(node)) {
+        if (!pending.node.isSameNode(node)) {
             commitText()
         }
     }
 
     // Wraps a chain and an entry into an event and hands it to the sender.
-    private fun emit(chain: Map<String, Any?>, entry: CatalogEntry, timestamp: Long) {
+    private fun emit(
+        chain: Map<String, Any?>,
+        entry: CatalogEntry,
+        timestamp: Long,
+    ) {
         options.emit(options.mapper.newEvent(chain, entry, timestamp))
     }
 
     // Returns the view context for an element event, or null when the setting or the event excludes it.
-    private fun getViewContext(node: RecorderNode, eventName: String): ViewContext? {
+    private fun getViewContext(
+        node: RecorderNode,
+        eventName: String,
+    ): ViewContext? {
         // Only element events carry the snapshot, and only while the setting is on.
         val settings = options.settings()
         val isIncluded = settings.isViewContextEnabled && EventCatalog.VIEW_CONTEXT_EVENT_NAMES.contains(eventName)
@@ -260,11 +285,15 @@ class EventProcessor(private val options: EventProcessorOptions) {
     }
 
     // Records a tap or long press on an element: pending input first, then the element event with its snapshot.
-    private fun onElementEvent(node: RecorderNode, entry: CatalogEntry, trigger: String) {
+    private fun onElementEvent(
+        node: RecorderNode,
+        entry: CatalogEntry,
+        trigger: String,
+    ) {
         // Remember the node for peek requests even when the event itself is disabled.
         lastTouchedNode = node
 
-        if (!options.settings().testEventEnabled(entry.event)) {
+        if (!options.settings().isEventEnabled(entry.event)) {
             return
         }
 
@@ -274,12 +303,21 @@ class EventProcessor(private val options: EventProcessorOptions) {
 
         // Map the chain now, while the tapped screen is still showing.
         val viewContext = getViewContext(node, entry.event)
-        val chain = options.mapper.newChain(ChainOptions(target = node, activity = currentActivity, trigger = trigger, viewContext = viewContext))
+        val chain =
+            options.mapper.newChain(
+                ChainOptions(target = node, activity = currentActivity, trigger = trigger, viewContext = viewContext),
+            )
         emit(chain, entry, options.clock())
     }
 
     // Field text waiting for its commit.
-    private data class PendingText(val node: RecorderNode, val chain: Map<String, Any?>, val text: String, val isPassword: Boolean, val timestamp: Long)
+    private data class PendingText(
+        val node: RecorderNode,
+        val chain: Map<String, Any?>,
+        val text: String,
+        val isPassword: Boolean,
+        val timestamp: Long,
+    )
 
     // Scroll gesture waiting for its commit; timestamp is the first event, lastTimestamp the latest.
     private data class PendingScroll(
@@ -288,8 +326,16 @@ class EventProcessor(private val options: EventProcessorOptions) {
         val direction: String,
         val notches: Int,
         val timestamp: Long,
-        val lastTimestamp: Long
-    )
+        val lastTimestamp: Long,
+    ) {
+        // Tests whether a new scroll event continues this gesture: same node, same direction, inside the window.
+        fun isContinuedBy(
+            node: RecorderNode,
+            direction: String,
+            now: Long,
+            windowMilliseconds: Long,
+        ): Boolean = this.node.isSameNode(node) && this.direction == direction && now - lastTimestamp < windowMilliseconds
+    }
 }
 
 /**
@@ -306,7 +352,7 @@ data class EventProcessorOptions(
     val settings: () -> RecorderSettings,
     val clock: () -> Long,
     val emit: (Map<String, Any?>) -> Unit,
-    val scrollWindowMilliseconds: Long = 500
+    val scrollWindowMilliseconds: Long = 500,
 )
 
 /**
@@ -317,16 +363,20 @@ object PeekResolver {
      * Returns the deepest visible node whose bounds contain a screen point.
      *
      * Later siblings are drawn on top of earlier ones, so they are searched first; that picks the view the user
-     * sees at the point, which is the one a replayed tap would hit.
+     * sees at the point, which is the one a replayed tap hits.
      *
      * @param root The root of the active window.
      * @param x Horizontal screen coordinate.
      * @param y Vertical screen coordinate.
      * @return The node, or null when the point is outside the window.
      */
-    fun findNodeAt(root: RecorderNode, x: Int, y: Int): RecorderNode? {
+    fun findNodeAt(
+        root: RecorderNode,
+        x: Int,
+        y: Int,
+    ): RecorderNode? {
         // Reject points outside the window before walking it.
-        if (!root.bounds.testContains(x, y)) {
+        if (!root.bounds.contains(x, y)) {
             return null
         }
 
@@ -335,7 +385,7 @@ object PeekResolver {
         var depth = 0
 
         while (depth < MAXIMUM_DEPTH) {
-            val child = current.children.asReversed().firstOrNull { it.isVisible && it.bounds.testContains(x, y) } ?: break
+            val child = current.children.asReversed().firstOrNull { it.isVisible && it.bounds.contains(x, y) } ?: break
             current = child
             depth++
         }

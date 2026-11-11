@@ -1,10 +1,10 @@
 package com.g4.recorders.android.core
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 class EventProcessorTest {
     // Events the processor emitted, in order.
@@ -16,17 +16,23 @@ class EventProcessorTest {
     // The settings the processor reads; tests replace them.
     private var settings = RecorderSettings()
 
-    private val processor = EventProcessor(EventProcessorOptions(
-        mapper = NodeMapper(machineName = "device", machineAddress = "serial"),
-        settings = { settings },
-        clock = { now },
-        emit = { emitted.add(it) }
-    ))
+    private val processor =
+        EventProcessor(
+            EventProcessorOptions(
+                mapper = NodeMapper(machineName = "device", machineAddress = "serial"),
+                settings = { settings },
+                clock = { now },
+                emit = { emitted.add(it) },
+            ),
+        )
 
     // A login screen: window > email field, password field, sign-in button, list.
     private val root = FakeNode("android.widget.FrameLayout", bounds = NodeBounds(0, 0, 1080, 2400))
     private val email = root.add(FakeNode("android.widget.EditText", resourceId = "com.app:id/email", isEditable = true))
-    private val password = root.add(FakeNode("android.widget.EditText", resourceId = "com.app:id/password", isEditable = true, isPassword = true))
+    private val password =
+        root.add(
+            FakeNode("android.widget.EditText", resourceId = "com.app:id/password", isEditable = true, isPassword = true),
+        )
     private val signIn = root.add(FakeNode("android.widget.Button", text = "Sign in", isClickable = true))
     private val list = root.add(FakeNode("androidx.recyclerview.widget.RecyclerView", resourceId = "com.app:id/list"))
 
@@ -37,7 +43,7 @@ class EventProcessorTest {
     private fun getValue(index: Int): Map<*, *> = emitted[index]["value"] as Map<*, *>
 
     @Test
-    fun typedTextIsOneSendKeysWithTheFinalTextBeforeTheNextTap() {
+    fun `typed text is one SendKeys with the final text before the next tap`() {
         // Act: tap the field, type three characters, tap the button.
         processor.onClicked(email)
         processor.onTextChanged(email, "a")
@@ -51,46 +57,55 @@ class EventProcessorTest {
     }
 
     @Test
-    fun tapOnTheEditedFieldKeepsItsTextOpen() {
+    fun `tap on the edited field keeps its text open`() {
+        // Act: type, tap the same field to move the cursor, type again, then flush.
         processor.onTextChanged(email, "ab")
         processor.onClicked(email)
         processor.onTextChanged(email, "abc")
         processor.commitPending()
 
+        // Assert: the tap is recorded, but the field stays one SendKeys with its final text.
         assertEquals(listOf("InvokeClick", "SendKeys"), getNames())
         assertEquals("abc", getValue(1)["text"])
     }
 
     @Test
-    fun focusOnAnotherFieldCommitsTheText() {
+    fun `focus on another field commits the text`() {
+        // Act: type into the email field, then move the focus to the password field.
         processor.onTextChanged(email, "me@example.com")
         processor.onFocused(password)
 
+        // Assert: leaving the field sends its text without waiting for a flush.
         assertEquals(listOf("SendKeys"), getNames())
     }
 
     @Test
-    fun passwordIsRedactedWhenTheSettingIsOn() {
+    fun `password is redacted when the setting is on`() {
+        // Arrange: turn password redaction on.
         settings = RecorderSettings(isRedactPasswordsEnabled = true)
 
+        // Act: type a password and flush.
         processor.onTextChanged(password, "secret")
         processor.commitPending()
 
+        // Assert: the payload carries the redaction marker, never the password.
         assertEquals(mapOf("text" to "***", "isRedacted" to true), getValue(0))
     }
 
     @Test
-    fun keyboardClosingCommitsTextThenHides() {
+    fun `keyboard closing commits text then hides`() {
+        // Act: open the keyboard, type, then report the keyboard hidden twice, as Android repeats window changes.
         processor.onKeyboardVisibilityChanged(true)
         processor.onTextChanged(email, "abc")
         processor.onKeyboardVisibilityChanged(false)
         processor.onKeyboardVisibilityChanged(false)
 
+        // Assert: the text comes first, and only the visible-to-hidden transition is recorded.
         assertEquals(listOf("SendKeys", "HideSoftKeyboard"), getNames())
     }
 
     @Test
-    fun backKeyCommitsTextThenNavigatesBack() {
+    fun `Back key commits the text then navigates back`() {
         // Act: type into a field, then press Back.
         processor.onTextChanged(email, "abc")
         processor.onBackPressed()
@@ -102,7 +117,7 @@ class EventProcessorTest {
     }
 
     @Test
-    fun scrollEventsCoalesceIntoOneGesture() {
+    fun `scroll events coalesce into one gesture`() {
         // Act: three downward scrolls inside the window, then a tap.
         processor.onScrolled(list, 0, 120)
         now += 100
@@ -117,38 +132,47 @@ class EventProcessorTest {
     }
 
     @Test
-    fun scrollGestureExpiresAfterTheWindow() {
+    fun `scroll gesture expires after the window`() {
+        // Act: scroll up, then check for expiry inside the window.
         processor.onScrolled(list, 0, -50)
         now += 200
         processor.commitExpiredScroll()
+
+        // Assert: the gesture is still open inside the window.
         assertTrue(emitted.isEmpty())
 
+        // Act: check again after the window has passed.
         now += 400
         processor.commitExpiredScroll()
 
+        // Assert: the gesture is sent once, with its direction.
         assertEquals(listOf("InvokeScroll"), getNames())
         assertEquals("Up", getValue(0)["direction"])
     }
 
     @Test
-    fun directionChangeStartsANewGesture() {
+    fun `direction change starts a new gesture`() {
+        // Act: scroll down, then immediately up on the same list.
         processor.onScrolled(list, 0, 50)
         processor.onScrolled(list, 0, -50)
         processor.commitPending()
 
+        // Assert: the reversal splits the scrolling into two gestures.
         assertEquals(2, emitted.size)
         assertEquals("Down", getValue(0)["direction"])
         assertEquals("Up", getValue(1)["direction"])
     }
 
     @Test
-    fun activityChangeIsAContextEventAndPopupsAreIgnored() {
+    fun `activity change is a context event and popups are ignored`() {
+        // Act: enter an activity, show a popup (no activity), re-report the same activity, type, then switch.
         processor.onWindowStateChanged("com.example.app", "com.example.app.LoginActivity")
         processor.onWindowStateChanged("com.example.app", "")
         processor.onWindowStateChanged("com.example.app", "com.example.app.LoginActivity")
         processor.onTextChanged(email, "abc")
         processor.onWindowStateChanged("com.example.app", "com.example.app.HomeActivity")
 
+        // Assert: only real activity changes are sent, as context events, and the text precedes the second one.
         assertEquals(listOf("SwitchActivity", "SendKeys", "SwitchActivity"), getNames())
         assertEquals("Context", emitted[0]["type"])
         assertEquals(mapOf("package" to "com.example.app", "activity" to "com.example.app.HomeActivity"), getValue(2))
@@ -156,36 +180,44 @@ class EventProcessorTest {
     }
 
     @Test
-    fun elementEventsCarryTheViewContextAndScrollsDoNot() {
+    fun `element events carry the view context and scrolls do not`() {
+        // Act: tap a button, then scroll a list.
         processor.onClicked(signIn)
         processor.onScrolled(list, 0, 50)
         processor.commitPending()
 
+        // Assert: only the element event carries a snapshot on its trigger node.
         assertTrue(getTriggerProperties(0).containsKey("domContext"))
         assertFalse(getTriggerProperties(1).containsKey("domContext"))
     }
 
     @Test
-    fun viewContextSettingOffRemovesTheSnapshot() {
+    fun `view context setting off removes the snapshot`() {
+        // Arrange: turn the view context off.
         settings = RecorderSettings(isViewContextEnabled = false)
 
+        // Act: tap a button.
         processor.onClicked(signIn)
 
+        // Assert: the event carries no snapshot.
         assertFalse(getTriggerProperties(0).containsKey("domContext"))
     }
 
     @Test
-    fun disabledEventsAreNotRecordedButStillTracked() {
+    fun `disabled events are not recorded but still tracked`() {
+        // Arrange: turn taps off.
         settings = RecorderSettings(enabledEvents = RecorderSettings.ALL_EVENT_NAMES - EventCatalog.INVOKE_CLICK)
 
+        // Act: tap a button.
         processor.onClicked(signIn)
 
+        // Assert: nothing is sent, but the node stays available to peek requests.
         assertTrue(emitted.isEmpty())
         assertEquals(signIn, processor.lastTouchedNode)
     }
 
     @Test
-    fun peekFindsTheTopmostNodeAtAPoint() {
+    fun `peek finds the topmost node at a point`() {
         // Arrange: two overlapping children; the later one is drawn on top.
         val window = FakeNode("android.widget.FrameLayout", bounds = NodeBounds(0, 0, 1000, 1000))
         window.add(FakeNode("android.widget.TextView", bounds = NodeBounds(0, 0, 500, 500)))

@@ -7,6 +7,7 @@
     <string name="status_service">Service</string>
     <string name="status_connection">Connection</string>
     <string name="status_events">Events this session</string>
+    <string name="status_events_value">%1$d</string>
     <string name="status_hub">Hub</string>
     <string name="status_target">Recorded app</string>
     <string name="status_error">Last error</string>

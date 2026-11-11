@@ -11,7 +11,10 @@ import java.util.Base64
  * @property domContext Base64 of the UTF-8 XML snapshot.
  * @property domContextLength Decoded byte count, so a client can check it decoded the whole snapshot.
  */
-data class ViewContext(val domContext: String, val domContextLength: Int)
+data class ViewContext(
+    val domContext: String,
+    val domContextLength: Int,
+)
 
 /**
  * Builds the view context snapshot: the XML of the subtree rooted a few ancestors above the target.
@@ -23,10 +26,13 @@ data class ViewContext(val domContext: String, val domContextLength: Int)
  * When the snapshot is larger than the budget, the builder drops one ancestor level at a time, then falls back to
  * the target element alone; when even that is too large, there is no snapshot.
  *
- * @property ancestorLevels How many ancestors above the target the snapshot is rooted at.
- * @property maximumKilobytes Largest decoded snapshot, in kilobytes.
+ * @param ancestorLevels How many ancestors above the target the snapshot is rooted at.
+ * @param maximumKilobytes Largest decoded snapshot, in kilobytes.
  */
-class ViewContextBuilder(private val ancestorLevels: Int, private val maximumKilobytes: Int) {
+class ViewContextBuilder(
+    private val ancestorLevels: Int,
+    private val maximumKilobytes: Int,
+) {
     /**
      * Returns the snapshot for a target node.
      *
@@ -58,7 +64,11 @@ class ViewContextBuilder(private val ancestorLevels: Int, private val maximumKil
     }
 
     // Writes the subtree of a root as XML; returns null as soon as the text outgrows the budget.
-    private fun getMarkup(root: RecorderNode, target: RecorderNode, maximumBytes: Int): String? {
+    private fun getMarkup(
+        root: RecorderNode,
+        target: RecorderNode,
+        maximumBytes: Int,
+    ): String? {
         // A UTF-8 byte is at least one character, so a character count above the budget is already too large.
         val builder = StringBuilder()
         val isWritten = writeNode(builder, root, target, maximumBytes, depth = 0)
@@ -67,7 +77,10 @@ class ViewContextBuilder(private val ancestorLevels: Int, private val maximumKil
     }
 
     // Encodes the markup when its UTF-8 size fits the budget.
-    private fun newViewContext(markup: String, maximumBytes: Int): ViewContext? {
+    private fun newViewContext(
+        markup: String,
+        maximumBytes: Int,
+    ): ViewContext? {
         val bytes = markup.toByteArray(Charsets.UTF_8)
 
         if (bytes.size > maximumBytes) {
@@ -78,8 +91,14 @@ class ViewContextBuilder(private val ancestorLevels: Int, private val maximumKil
     }
 
     // Writes one node and its children; returns false when the budget or the depth guard is exceeded.
-    private fun writeNode(builder: StringBuilder, node: RecorderNode, target: RecorderNode, maximumBytes: Int, depth: Int): Boolean {
-        // Stop early instead of building a huge string that would be thrown away.
+    private fun writeNode(
+        builder: StringBuilder,
+        node: RecorderNode,
+        target: RecorderNode,
+        maximumBytes: Int,
+        depth: Int,
+    ): Boolean {
+        // Stop early instead of building a huge string that is thrown away anyway.
         if (builder.length > maximumBytes || depth > MAXIMUM_DEPTH) {
             return false
         }
@@ -108,7 +127,12 @@ class ViewContextBuilder(private val ancestorLevels: Int, private val maximumKil
     }
 
     // Writes the opening tag of a node with its UiAutomator2 attributes.
-    private fun writeOpeningTag(builder: StringBuilder, node: RecorderNode, target: RecorderNode, isSelfClosing: Boolean) {
+    private fun writeOpeningTag(
+        builder: StringBuilder,
+        node: RecorderNode,
+        target: RecorderNode,
+        isSelfClosing: Boolean,
+    ) {
         // Never write a password field's content, whatever Android reports for it.
         val text = if (node.isPassword) "" else node.text
 
@@ -130,11 +154,11 @@ class ViewContextBuilder(private val ancestorLevels: Int, private val maximumKil
         writeAttribute(builder, "password", node.isPassword.toString())
         writeAttribute(builder, "scrollable", node.isScrollable.toString())
         writeAttribute(builder, "selected", node.isSelected.toString())
-        writeAttribute(builder, "bounds", node.bounds.convertToBoundsText())
+        writeAttribute(builder, "bounds", node.bounds.toBoundsText())
         writeAttribute(builder, "displayed", node.isVisible.toString())
 
         // Mark the recorded element so a client finds it without re-running the locator.
-        if (node.testSameNode(target)) {
+        if (node.isSameNode(target)) {
             writeAttribute(builder, "g4-target", "true")
         }
 
@@ -149,13 +173,20 @@ class ViewContextBuilder(private val ancestorLevels: Int, private val maximumKil
         const val MAXIMUM_DEPTH = 256
 
         // Returns the XML tag of a node; UiAutomator2 writes a generic view tag when Android reports no class.
-        fun getTag(node: RecorderNode): String {
-            return node.className.ifEmpty { "android.view.View" }
-        }
+        fun getTag(node: RecorderNode): String = node.className.ifEmpty { "android.view.View" }
 
         // Writes one attribute with XML escaping.
-        fun writeAttribute(builder: StringBuilder, name: String, value: String) {
-            builder.append(' ').append(name).append("=\"").append(convertToXmlText(value)).append('"')
+        fun writeAttribute(
+            builder: StringBuilder,
+            name: String,
+            value: String,
+        ) {
+            builder
+                .append(' ')
+                .append(name)
+                .append("=\"")
+                .append(convertToXmlText(value))
+                .append('"')
         }
 
         // Escapes the five XML special characters and drops control characters XML 1.0 cannot carry.

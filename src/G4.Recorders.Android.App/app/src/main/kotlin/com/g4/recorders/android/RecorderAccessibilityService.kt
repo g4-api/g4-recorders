@@ -32,7 +32,9 @@ import com.g4.recorders.android.core.RecorderSettings
  * The host enables the service through `adb shell settings put secure enabled_accessibility_services` and disables
  * it again on stop; the service also stops itself when the host sends `CloseRecorder`.
  */
-class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnection.Listener {
+class RecorderAccessibilityService :
+    AccessibilityService(),
+    RecorderHubConnection.Listener {
     // Runs processor work on the main thread, where accessibility events arrive.
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -62,12 +64,15 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
         settings = SettingsStore.getSettings(this)
         val nodeMapper = NodeMapper(machineName = Build.MODEL.orEmpty(), machineAddress = getDeviceAddress())
         mapper = nodeMapper
-        processor = EventProcessor(EventProcessorOptions(
-            mapper = nodeMapper,
-            settings = { settings },
-            clock = { System.currentTimeMillis() },
-            emit = { recordingEvent -> connection?.sendRecordingEvent(recordingEvent) }
-        ))
+        processor =
+            EventProcessor(
+                EventProcessorOptions(
+                    mapper = nodeMapper,
+                    settings = { settings },
+                    clock = { System.currentTimeMillis() },
+                    emit = { recordingEvent -> connection?.sendRecordingEvent(recordingEvent) },
+                ),
+            )
 
         // Connect now when auto-connect is on; a later settings change can still start the connection.
         connection = RecorderHubConnection(this)
@@ -91,7 +96,7 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
 
         // Window changes have no reliable package; they only tell whether the soft keyboard is showing.
         if (accessibilityEvent.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
-            currentProcessor.onKeyboardVisibilityChanged(testKeyboardVisible())
+            currentProcessor.onKeyboardVisibilityChanged(isKeyboardVisible())
 
             return
         }
@@ -154,6 +159,9 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
         // The recorder gives no spoken or haptic feedback, so there is nothing to interrupt.
     }
 
+    // A peek walks the live accessibility tree, where the framework reports a vanished window or node as various
+    // RuntimeException subclasses; every one becomes the answer's error instead of a lost correlation.
+    @Suppress("TooGenericExceptionCaught")
     override fun onPeekRequested(request: PeekRequestModel) {
         // Resolve on the main thread, where the processor's last touched node lives.
         mainHandler.post {
@@ -164,7 +172,8 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
                 val nodeMapper = mapper
 
                 if (node != null && nodeMapper != null) {
-                    val chainOptions = ChainOptions(target = node, activity = processor?.currentActivity.orEmpty(), trigger = "Peek", viewContext = null)
+                    val chainOptions =
+                        ChainOptions(target = node, activity = processor?.currentActivity.orEmpty(), trigger = "Peek", viewContext = null)
                     response["chain"] = nodeMapper.newChain(chainOptions)
                 }
             } catch (exception: RuntimeException) {
@@ -177,15 +186,44 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
     }
 
     // Routes one accessibility event to the processor.
-    private fun dispatchEvent(currentProcessor: EventProcessor, event: AccessibilityEvent, packageName: String) {
+    private fun dispatchEvent(
+        currentProcessor: EventProcessor,
+        event: AccessibilityEvent,
+        packageName: String,
+    ) {
         when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_CLICKED -> getSourceNode(event)?.let { currentProcessor.onClicked(it) }
-            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> getSourceNode(event)?.let { currentProcessor.onLongClicked(it) }
-            AccessibilityEvent.TYPE_VIEW_FOCUSED -> getSourceNode(event)?.let { currentProcessor.onFocused(it) }
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> getSourceNode(event)?.let { currentProcessor.onTextChanged(it, getEventText(event, it)) }
-            AccessibilityEvent.TYPE_VIEW_SCROLLED -> onScrolled(currentProcessor, event)
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> currentProcessor.onWindowStateChanged(packageName, resolveActivity(event, packageName))
-            else -> Unit
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                getSourceNode(event)?.let { currentProcessor.onClicked(it) }
+            }
+
+            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
+                getSourceNode(event)?.let { currentProcessor.onLongClicked(it) }
+            }
+
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
+                getSourceNode(event)?.let { currentProcessor.onFocused(it) }
+            }
+
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
+                getSourceNode(
+                    event,
+                )?.let { currentProcessor.onTextChanged(it, getEventText(event, it)) }
+            }
+
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                onScrolled(currentProcessor, event)
+            }
+
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                currentProcessor.onWindowStateChanged(
+                    packageName,
+                    resolveActivity(event, packageName),
+                )
+            }
+
+            else -> {
+                Unit
+            }
         }
     }
 
@@ -198,7 +236,10 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
     }
 
     // Returns the field content after a text change, preferring the live node over the event's copy.
-    private fun getEventText(event: AccessibilityEvent, node: RecorderNode): String {
+    private fun getEventText(
+        event: AccessibilityEvent,
+        node: RecorderNode,
+    ): String {
         // The node reports the whole current content; the event text is the fallback for views that do not.
         if (node.text.isNotEmpty() || event.text.isNullOrEmpty()) {
             return node.text
@@ -233,7 +274,10 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
     }
 
     // Forwards a scroll with its deltas and arms the timer that closes the gesture.
-    private fun onScrolled(currentProcessor: EventProcessor, event: AccessibilityEvent) {
+    private fun onScrolled(
+        currentProcessor: EventProcessor,
+        event: AccessibilityEvent,
+    ) {
         val node = getSourceNode(event) ?: return
 
         // Android 9 reports the deltas directly; older versions report only the item range, read as a direction.
@@ -248,7 +292,10 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
     }
 
     // Returns the activity class of a window state change, or empty when the window is not an activity.
-    private fun resolveActivity(event: AccessibilityEvent, packageName: String): String {
+    private fun resolveActivity(
+        event: AccessibilityEvent,
+        packageName: String,
+    ): String {
         // Dialogs and popups report view classes; only the package manager knows whether a class is an activity.
         val className = event.className?.toString().orEmpty()
 
@@ -259,7 +306,7 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
         return try {
             packageManager.getActivityInfo(ComponentName(packageName, className), 0)
             className
-        } catch (exception: PackageManager.NameNotFoundException) {
+        } catch (expected: PackageManager.NameNotFoundException) {
             ""
         }
     }
@@ -268,16 +315,24 @@ class RecorderAccessibilityService : AccessibilityService(), RecorderHubConnecti
     private fun resolvePeekNode(request: PeekRequestModel): RecorderNode? {
         // Coordinates search the active window; focus asks Android; current returns the last touched node.
         return when (request.mode) {
-            "Coordinates" -> rootInActiveWindow?.let { PeekResolver.findNodeAt(AccessibilityNodeAdapter(it), request.x, request.y) }
-            "Focused" -> (findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY))?.let { AccessibilityNodeAdapter(it) }
-            else -> processor?.lastTouchedNode
+            "Coordinates" -> {
+                rootInActiveWindow?.let { PeekResolver.findNodeAt(AccessibilityNodeAdapter(it), request.x, request.y) }
+            }
+
+            "Focused" -> {
+                (findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY))?.let {
+                    AccessibilityNodeAdapter(it)
+                }
+            }
+
+            else -> {
+                processor?.lastTouchedNode
+            }
         }
     }
 
     // Tests whether an input method window is on screen.
-    private fun testKeyboardVisible(): Boolean {
-        return windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
-    }
+    private fun isKeyboardVisible(): Boolean = windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
 
     private companion object {
         // Coalescing window for scroll events; matches the processor default.
