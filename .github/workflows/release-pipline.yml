@@ -1,4 +1,4 @@
-# Workflow to build and release G4 Recorders (UIA, Chromium & SAP) for production
+# Workflow to build and release G4 Recorders (UIA, Chromium, SAP & Android) for production
 name: Build & Release
 
 # Define permissions for the workflow
@@ -21,6 +21,8 @@ on:
 env:
   artifactStagingDirectory: ${{ github.workspace }}/artifact_staging
   artifactType: 'Production'
+  androidAppProjectName: G4.Recorders.Android.App
+  androidProjectName: G4.Recorders.Android
   binariesDirectory: ${{ github.workspace }}/binaries
   buildConfiguration: 'Release'
   buildPlatform: 'any cpu'
@@ -367,6 +369,169 @@ jobs:
         name: ${{ matrix.artifactName }}
         path: ${{ env.artifactStagingDirectory }}/*
 
+  # Job to build the Android recorder app (the APK the Android recorder host installs on devices)
+  build-android-app:
+    name: Build G4 Recorders - Android App Version ${{ needs.new-version.outputs.buildVersion }}
+    runs-on: ubuntu-latest
+    needs: new-version
+    if: ${{ needs.new-version.result == 'success' && needs.new-version.outputs.validVersion == 'True' }}
+
+    steps:
+    # Step to checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Step to setup the JDK the Gradle build targets
+    - name: Setup JDK 21
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: 21
+
+    # Step to setup the Android SDK (platform and build tools are installed by the Android Gradle plugin)
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    # Step to run the app's unit tests and build the release APK, which the build exports to
+    # src/G4.Recorders.Android.App.Drop/g4-recorder.apk
+    - name: Test & Build APK
+      working-directory: src/${{ env.androidAppProjectName }}
+      shell: bash
+      run: |
+        chmod +x ./gradlew
+        ./gradlew test assembleRelease --no-daemon
+
+    # Step to upload the APK for the host publish jobs
+    - name: Upload the APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-recorder-app-drop
+        path: src/${{ env.androidAppProjectName }}.Drop/g4-recorder.apk
+        if-no-files-found: error
+
+  # Job to build and publish the G4 Recorders Android host, with the APK inside, for every desktop platform
+  build-android-recorder:
+    name: Build & Publish G4 Recorders - Android ${{ matrix.runtime }} Version ${{ needs.new-version.outputs.buildVersion }}
+    runs-on: ${{ matrix.runner }}
+    needs:
+      - new-version
+      - build-android-app
+    if: ${{ needs.new-version.result == 'success' && needs.new-version.outputs.validVersion == 'True' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            runtime: win-x64
+            archiveExtension: zip
+            artifactName: android-recorder-win-drop
+          - runner: ubuntu-latest
+            runtime: linux-x64
+            archiveExtension: tar.gz
+            artifactName: android-recorder-linux-drop
+          # The host is framework-dependent, so the Apple Silicon runner publishes both macOS runtime identifiers.
+          - runner: macos-latest
+            runtime: osx-x64
+            archiveExtension: tar.gz
+            artifactName: android-recorder-osx-x64-drop
+          - runner: macos-latest
+            runtime: osx-arm64
+            archiveExtension: tar.gz
+            artifactName: android-recorder-osx-arm64-drop
+
+    # Set environment variables specific to the build job
+    env:
+      buildVersion: ${{ needs.new-version.outputs.buildVersion }}
+
+    steps:
+    # Step to checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Step to put the freshly built APK into the drop folder the host project links, replacing any committed copy
+    - name: Download the APK
+      uses: actions/download-artifact@v4
+      with:
+        name: android-recorder-app-drop
+        path: ${{ github.workspace }}/src/${{ env.androidAppProjectName }}.Drop
+
+    # Step to setup .NET Core SDK
+    - name: Setup .NET Core SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    # Step to restore packages
+    - name: Restore Packages
+      shell: pwsh
+      run: dotnet restore ${{ env.androidProjectName }}/${{ env.androidProjectName }}.csproj
+
+    # Step to set the G4 Recorders - Android version
+    - name: Set Version v${{ env.buildVersion }}
+      shell: pwsh
+      run: |
+        $filePath          = "${{ env.androidProjectName }}/Program.cs"
+        $tempVersion       = '"0000.00.00.0000"'
+        $version           = '"${{ env.buildVersion }}"'
+        $content           = Get-Content -LiteralPath $filePath -Raw -ErrorAction Stop
+        $placeholderCount  = ([regex]::Matches($content, [regex]::Escape($tempVersion))).Count
+
+        if ($placeholderCount -ne 1) {
+            throw "Expected exactly one version placeholder in '$filePath', but found $placeholderCount."
+        }
+
+        $newContent = $content.Replace($tempVersion, $version)
+        Set-Content -LiteralPath $filePath -Value $newContent -NoNewline
+
+    # Step to publish the project
+    - name: Publish
+      shell: pwsh
+      run: >-
+        dotnet publish
+        ${{ env.androidProjectName }}/${{ env.androidProjectName }}.csproj
+        --configuration ${{ env.buildConfiguration }}
+        --runtime ${{ matrix.runtime }}
+        --self-contained false
+        --output ${{ env.binariesDirectory }}/${{ env.androidProjectName }}/publish
+
+    # Step to fail the build when the APK did not make it into the published host
+    - name: Verify the APK is Published
+      shell: pwsh
+      run: |
+        $apkPath = "${{ env.binariesDirectory }}/${{ env.androidProjectName }}/publish/${{ env.androidAppProjectName }}.Drop/g4-recorder.apk"
+
+        if (-not (Test-Path -LiteralPath $apkPath)) {
+            throw "The recorder APK is missing from the published host: $apkPath"
+        }
+
+    # Step to create a build artifact
+    - name: Create Build Artifact
+      shell: pwsh
+      run: |
+        New-Item -Path "${{ env.artifactStagingDirectory }}" -ItemType Directory
+        $archivePath = "${{ env.artifactStagingDirectory }}/android-recorder.${{ env.buildVersion }}-${{ matrix.runtime }}.${{ matrix.archiveExtension }}"
+
+        if ("${{ matrix.archiveExtension }}" -eq "zip") {
+          Compress-Archive `
+              -Path ${{ env.binariesDirectory }}/${{ env.androidProjectName }}/publish/* `
+              -DestinationPath $archivePath
+        }
+        else {
+          tar -czf $archivePath -C ${{ env.binariesDirectory }}/${{ env.androidProjectName }}/publish .
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "tar failed with exit code $LASTEXITCODE."
+          }
+        }
+
+    # Step to upload the build artifact
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifactName }}
+        path: ${{ env.artifactStagingDirectory }}/*
+
   # Job to create a GitHub release and tag the new version
   create-release:
     name: New GitHub Release Version ${{ needs.new-version.outputs.buildVersion }}
@@ -377,6 +542,7 @@ jobs:
       - build-uia-path-finder
       - build-chromium-recorder
       - build-sap-recorder
+      - build-android-recorder
     if: success()
 
     # Set environment variables specific to the release job
@@ -426,6 +592,27 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: sap-recorder-drop
+
+    # Step to download G4 Recorders - Android build artifacts
+    - name: Download G4 Recorders - Android Windows Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: android-recorder-win-drop
+
+    - name: Download G4 Recorders - Android Linux Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: android-recorder-linux-drop
+
+    - name: Download G4 Recorders - Android macOS Intel Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: android-recorder-osx-x64-drop
+
+    - name: Download G4 Recorders - Android macOS Apple Silicon Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: android-recorder-osx-arm64-drop
 
     # Step to create a GitHub release and tag
     - name: Create GitHub Release & Tag v${{ env.buildVersion }}

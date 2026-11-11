@@ -1,0 +1,50 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<!-- Assembly -->
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyVersion>10.0.0.0</AssemblyVersion>
+		<FileVersion>10.0.0.0</FileVersion>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<SatelliteResourceLanguages>en-US</SatelliteResourceLanguages>
+		<LangVersion>latest</LangVersion>
+		<UserSecretsId>5c0d7f0e-2a4b-4f7e-9b1e-6a8d3c2f4e19</UserSecretsId>
+		<ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+		<!-- https://learn.microsoft.com/en-us/dotnet/fundamentals/syslib-diagnostics/syslib1040-1049 -->
+		<NoWarn>$(NoWarn);SYSLIB1045;IDE0130;SYSLIB1054;CA2101;S4200</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
+		<PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.1" />
+		<PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="10.3.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Link the recorder app sources (sibling G4.Recorders.Android.App Gradle project) into this project, the way
+		     the Chromium host links its extension, so the app is edited from the same project. The Kotlin sources are not
+		     copied: the device runs the built APK below. Gradle state and build output are excluded. -->
+		<None Include="..\G4.Recorders.Android.App\**\*" Exclude="..\G4.Recorders.Android.App\.gradle\**;..\G4.Recorders.Android.App\.kotlin\**;..\G4.Recorders.Android.App\build\**;..\G4.Recorders.Android.App\app\build\**;..\G4.Recorders.Android.App\local.properties">
+			<Link>G4.Recorders.Android.App\%(RecursiveDir)%(Filename)%(Extension)</Link>
+			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Link the APK drop (sibling G4.Recorders.Android.App.Drop folder, where the app's Gradle build exports the
+		     release APK) and copy it to the build output under the same folder name, where AndroidRecorderLauncher
+		     installs it from. Like the extension folder, the drop is a plain folder, so the host builds without Gradle. -->
+		<None Include="..\G4.Recorders.Android.App.Drop\**\*">
+			<Link>G4.Recorders.Android.App.Drop\%(RecursiveDir)%(Filename)%(Extension)</Link>
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+			<CopyToPublishDirectory>Always</CopyToPublishDirectory>
+		</None>
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\G4.Recorders.Android.Domain\G4.Recorders.Android.Domain.csproj" />
+	</ItemGroup>
+
+</Project>

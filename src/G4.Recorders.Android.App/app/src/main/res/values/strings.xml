@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">G4 Android Recorder</string>
+    <string name="service_label">G4 Android Recorder</string>
+    <string name="service_description">Records taps, typed text, scrolls and screen changes and sends them to the G4 Android recorder host on your computer. Turn it on only while you record.</string>
+    <string name="status_title">Recorder status</string>
+    <string name="status_service">Service</string>
+    <string name="status_connection">Connection</string>
+    <string name="status_events">Events this session</string>
+    <string name="status_events_value">%1$d</string>
+    <string name="status_hub">Hub</string>
+    <string name="status_target">Recorded app</string>
+    <string name="status_error">Last error</string>
+    <string name="status_service_on">on</string>
+    <string name="status_service_off">off</string>
+    <string name="status_all_packages">every app</string>
+    <string name="button_accessibility_settings">Accessibility settings</string>
+    <string name="button_recorder_settings">Recorder settings</string>
+    <string name="settings_title">Recorder settings</string>
+    <string name="settings_connection">Connection</string>
+    <string name="settings_hub_url">Hub URL</string>
+    <string name="settings_target_package">Recorded app package (empty records every app)</string>
+    <string name="settings_auto_connect">Connect automatically</string>
+    <string name="settings_redact_passwords">Redact passwords</string>
+    <string name="settings_view_context">View context</string>
+    <string name="settings_view_context_enabled">Send the view context with element events</string>
+    <string name="settings_view_context_levels">Ancestor levels (0 to 10)</string>
+    <string name="settings_view_context_size">Maximum snapshot size in KB (1 to 256)</string>
+    <string name="settings_events">Events to record</string>
+</resources>

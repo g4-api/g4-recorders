@@ -48,6 +48,7 @@
                 "lib/settings-store.js",
                 "lib/recorder-contract.js",
                 "lib/dom-locator.js",
+                "lib/dom-context.js",
                 "lib/dom-mapper.js",
                 "lib/event-catalog.js",
                 "js/content-script.js"

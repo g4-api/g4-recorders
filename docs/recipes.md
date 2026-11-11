@@ -109,6 +109,75 @@ In Windows PowerShell, type `curl.exe` instead of `curl`. The recipes use files 
 - [Chromium events](events/chromium-events.md)
 - [Troubleshooting](troubleshooting.md)
 
+### Record an Android app and replay it
+
+**Steps:**
+
+1. Start the Hub as in the first recipe. It must be a Hub that accepts `AndroidDriver`.
+2. Connect a device with USB debugging on, or start an emulator, and check that `adb devices` lists it as `device`.
+3. Start the Android recorder, as in [Module 5](install-and-operate/05-android-recorder.md). It listens on `http://localhost:9958`. Keep the `G4.Recorders.Android.App.Drop` folder next to the program.
+4. Save this request body as `start-android.json`. The `driverParameters` are the ones the flow replays with: `driver` is `AndroidDriver`, `driverBinaries` is the Appium endpoint, and `capabilities.alwaysMatch` with `firstMatch` are the W3C WebDriver new-session capabilities. Put your G4 license token in `authentication.token`, so the flow can replay.
+
+   ```json
+   {
+       "authentication": {
+           "token": "<your G4 token>"
+       },
+       "recorders": [
+           {
+               "enabled": true,
+               "baseUrl": "http://localhost:9958",
+               "driverParameters": {
+                   "driver": "AndroidDriver",
+                   "driverBinaries": "http://localhost:4723",
+                   "capabilities": {
+                       "alwaysMatch": {
+                           "platformName": "android",
+                           "appium:automationName": "UiAutomator2",
+                           "appium:appPackage": "com.android.settings",
+                           "appium:appActivity": ".Settings"
+                       }
+                   },
+                   "firstMatch": [ {} ]
+               }
+           }
+       ]
+   }
+   ```
+
+5. Start the session. The Hub asks the recorder to install the recorder app, switch on its accessibility service, and start Settings on the device.
+
+   ```bash
+   curl -X POST http://localhost:9944/api/v4/g4/recordings -H "Content-Type: application/json" -d @start-android.json
+   ```
+
+6. Use the app on the device: tap, type, and press Back.
+7. Stop the session with the `id` from the start answer.
+
+   ```bash
+   curl -X POST http://localhost:9944/api/v4/g4/recordings/<id>/stop -o flow.json
+   ```
+
+8. Start an Appium server with the UiAutomator2 driver, as in [Module 5, Step 6](install-and-operate/05-android-recorder.md#step-6-know-what-replay-needs).
+9. Remove the `SwitchActivity` and `InvokeLongClick` actions from `flow.json`. No plugin replays them yet; the VS Code extension removes them for you through `excludeEvents`.
+10. Replay the flow.
+
+    ```bash
+    curl -X POST http://localhost:9944/api/v4/g4/automation/invoke -H "Content-Type: application/json" -d @flow.json
+    ```
+
+**Verify:**
+
+- The device showed Settings after step 5, and the recorder app's status screen showed **connected**.
+- `flow.json` holds `InvokeClick` actions with XPath locators such as `//android.widget.TextView[@text='Network & internet']/ancestor::android.widget.LinearLayout[1]`, and ends with `CloseBrowser`.
+- After step 7, `adb shell settings get secure enabled_accessibility_services` no longer lists the recorder.
+- During step 10, the Appium log shows the taps and the Back of your session.
+
+**Related:**
+
+- [Android events](events/android-events.md)
+- [Troubleshooting](troubleshooting.md)
+
 ### Watch the raw events from a recorder
 
 **Steps:**
@@ -136,7 +205,7 @@ In Windows PowerShell, type `curl.exe` instead of `curl`. The recipes use files 
 **Related:**
 
 - [The event contract](events/contract.md)
-- [Verify with the ping routes](install-and-operate/06-verify-with-the-ping-routes.md)
+- [Verify with the ping routes](install-and-operate/07-verify-with-the-ping-routes.md)
 
 ### Build the recorders on your computer
 
@@ -161,9 +230,23 @@ In Windows PowerShell, type `curl.exe` instead of `curl`. The recipes use files 
    dotnet publish G4.Recorders.Sap/G4.Recorders.Sap.csproj -c Release -o ../artifacts/sap
    ```
 
+5. Build the Android recorder app with its Gradle wrapper, which needs JDK 17 or later and the Android SDK (`ANDROID_HOME`). It writes `G4.Recorders.Android.App.Drop/g4-recorder.apk`.
+
+   ```bash
+   cd G4.Recorders.Android.App
+   ./gradlew test assembleRelease
+   cd ..
+   ```
+
+6. Publish the Android recorder with `dotnet`. The publish copies the drop folder next to the program.
+
+   ```bash
+   dotnet publish G4.Recorders.Android/G4.Recorders.Android.csproj --configuration Release --self-contained false --output ../artifacts/android
+   ```
+
 **Verify:**
 
-- Each output folder holds the recorder program. The Chromium folder also holds `G4.Recorders.Chromium.Extension`.
+- Each output folder holds the recorder program. The Chromium folder also holds `G4.Recorders.Chromium.Extension`, and the Android folder holds `G4.Recorders.Android.App.Drop`.
 - The commands above match the release workflow. It publishes the Path Finder with MSBuild as well.
 
 **Related:**

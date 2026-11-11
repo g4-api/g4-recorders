@@ -13,8 +13,8 @@
  *
  * @remarks
  * Attached to the shared `globalThis.g4Recorder` namespace (see constants.js). Loaded
- * as a content script in every frame. Depends on the contract and locator modules,
- * which are listed before it in the manifest content-script order.
+ * as a content script in every frame. Depends on the contract, locator, and DOM context
+ * modules, which are listed before it in the manifest content-script order.
  */
 (function initializeDomMapperModule(globalScope) {
     // Create or reuse the single extension namespace shared across every context.
@@ -44,10 +44,12 @@
      * @param {Element} options.element The trigger element the interaction targeted.
      * @param {string} options.trigger The event name that produced this chain.
      * @param {object|null} options.point The trigger point, or null when not applicable.
+     * @param {object|null} [options.domContextOptions] The DOM context limits ({ ancestorLevels,
+     *   maximumKilobytes }) when the trigger node should carry a DOM context, otherwise null.
      * @returns {object} The chain in contract shape.
      */
     function newChainFromElement(options) {
-        const { element, trigger, point } = options;
+        const { element, trigger, point, domContextOptions = null } = options;
 
         // Collect the trigger element and each ancestor element up to the root so the
         // path can be built from the bottom up, matching the desktop recorder.
@@ -65,6 +67,16 @@
             isTopWindow: index === lastIndex,
             machine
         }));
+
+        // Place the markup around the element on the trigger node when the caller asked for it,
+        // next to the CSS selector, so consumers find every web detail of the target in one map.
+        const domContext = domContextOptions
+            ? namespace.domContext.getDomContext({ element, ...domContextOptions })
+            : null;
+
+        if (domContext && path.length > 0) {
+            Object.assign(path[0].properties, domContext);
+        }
 
         // The top window node is the final node in the bottom-up path, when present.
         const topWindow = path.length > 0

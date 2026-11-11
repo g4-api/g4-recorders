@@ -19,7 +19,7 @@ Two services can turn recorder events into a G4 flow: the standalone `g4-recorde
 | Resume a recorder | Not available | `POST /api/v4/g4/recordings/{id}/resume` |
 | Drain before stop | No. Stop reads the buffer at once. | Yes. See [Drain on stop](#drain-on-stop). |
 | MCP tools | `get_automation`, `get_recording_status`, `start_recording`, `stop_recording` | `g4.GetAutomation`, `g4.GetRecordingStatus`, `g4.StartRecording`, `g4.StopRecording` |
-| Supported drivers | `UiaDriver`, `ChromeDriver` | `UiaDriver`, `ChromeDriver` |
+| Supported drivers | `UiaDriver`, `ChromeDriver` | `UiaDriver`, `ChromeDriver`, `AndroidDriver` |
 | SAP recorder | Rejected | Rejected |
 | Pre and post scripts | Refused ("deferred to a later layer") | Refused (same message) |
 
@@ -39,12 +39,12 @@ The UIA and SAP hubs expose `FlushRecorder` (`UiaRecorderHub.cs:57`, `SapRecorde
 
 ## Supported drivers
 
-Both services accept a recorder only when its driver name is `UiaDriver` (exact match, any case) or contains `chrome`. Any other driver is refused with "Recorder driver must be ChromeDriver or UiaDriver." (`RecordingService.cs:385-393`, `RecordingsRepository.cs:412-415`). The SAP recorder therefore cannot be used with either service. Consume its hub directly. See [SAP messages](sap-message.md).
+The client accepts a recorder only when its driver name is `UiaDriver` (exact match, any case) or contains `chrome`, and refuses any other with "Recorder driver must be ChromeDriver or UiaDriver." (`RecordingService.cs:385-393`). The Hub also accepts `AndroidDriver` (exact match, any case), and refuses any other driver with "Recorder driver must be AndroidDriver, ChromeDriver or UiaDriver." (`RecordingsRepository.cs:410-415`). The Hub starts and stops Android recordings through `StartRecorder` and `StopRecorder`, as for Chromium. The SAP recorder therefore cannot be used with either service. Consume its hub directly. See [SAP messages](sap-message.md).
 
 ## Moving from the client to the Hub
 
 1. Change the base address from `http://localhost:9957` to the Hub address, `http://localhost:9944` by default.
-2. Keep the recorder endpoints in the request: UIA on 9955 and Chromium on 9956.
+2. Keep the recorder endpoints in the request: UIA on 9955 and Chromium on 9956. The Hub also takes Android on 9958.
 3. Use the same four routes. Check the Swagger page of the Hub at `/swagger` for the exact request body, because the two services have separate models.
 4. For MCP, switch the tool names to the `g4.` form in the table above and point the MCP client at the Hub.
 

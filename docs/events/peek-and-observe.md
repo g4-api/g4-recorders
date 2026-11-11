@@ -30,6 +30,7 @@ The method names come from the `HubMethodName` attributes in `UiaRecorderHub.cs:
 | UIA | Resolves the chain on the recorder machine. `SendPeekCurrent` throws a hub error "The current physical cursor position is unavailable." when the cursor cannot be read (`UiaRecorderHub.cs:109`). |
 | Chromium | Forwards the request to the connected extension and waits for its answer, with a 5-second timeout (`ChromiumRecorderRepository.cs:29`). With no extension, or more than one, the lookup fails with "No Chromium recorder extension is connected." or "More than one Chromium recorder extension is connected; the target is ambiguous." (`ChromiumRecorderRepository.cs`, `GetElementChainAsync`). |
 | SAP | Resolves the chain through SAP GUI. `SendPeekCurrent` throws the same cursor message as UIA (`SapRecorderHub.cs:181`). |
+| Android | Forwards the request to the connected recorder app and waits for its answer, with a 5-second timeout. Coordinates are screen pixels; `SendPeekCurrent` returns the node of the last interaction. With no app, or more than one, the lookup fails with "No Android recorder app is connected." or "More than one Android recorder app is connected; the target is ambiguous." (`AndroidRecorderRepository.cs`, `GetElementChainAsync`). |
 
 Other hub methods:
 
@@ -38,12 +39,13 @@ Other hub methods:
 | UIA | `FlushRecorder` |
 | Chromium | `RegisterRecorder`, `SendRecordingEvent`, `SendPeekResponse`, `StartRecorder`, `StopRecorder` |
 | SAP | `FlushRecorder`, `GetRecorderStatus`, `StartRecorder`, `StopRecorder` |
+| Android | `FlushRecorder`, `RegisterRecorder`, `SendRecordingEvent`, `SendPeekResponse`, `SendFlushResponse`, `StartRecorder`, `StopRecorder` |
 
-The extension handles the server message `ReceivePeekRequest` and answers with `SendPeekResponse`. A client never calls these two.
+The extension handles the server message `ReceivePeekRequest` and answers with `SendPeekResponse`. A client never calls these two. The Android recorder app does the same, and also answers `ReceiveFlushRequest` with `SendFlushResponse` and handles `CloseRecorder`.
 
 ## REST routes
 
-The route prefix is `/api/v4/g4/recorders/<recorder>/recorder`, where `<recorder>` is `uia`, `chromium` or `sap`. The ports are 9955 for UIA, 9956 for Chromium and 9957 for SAP.
+The route prefix is `/api/v4/g4/recorders/<recorder>/recorder`, where `<recorder>` is `uia`, `chromium`, `sap` or `android`. The ports are 9955 for UIA, 9956 for Chromium, 9957 for SAP and 9958 for Android.
 
 | Method and route | Query | What it does |
 | --- | --- | --- |
@@ -57,13 +59,13 @@ The observe routes act on the machine that runs the recorder, not on the caller 
 
 ### Which routes work on which recorder
 
-| Route | UIA | Chromium | SAP |
-| --- | --- | --- | --- |
-| `GET element` | Works. `500` if the cursor cannot be read. | Works. `503` if no single extension is connected. `504` if the extension does not answer in time. | Works. `500` if the cursor cannot be read. `503` if SAP Logon is not running, scripting is disabled, or SAP GUI does not answer in time. |
-| `GET observe` | Works. | Not implemented. `501`. | Works. |
-| `POST point` | Works. | Not implemented. `501`. | Works. |
-| `POST ground` | Works. | Not implemented. `501`. | Works. `503` for the same reasons as `element`. |
-| `POST focus` | Works. | Not implemented. `501`. | Works. `400` if neither `windowTitle` nor `processName` is given. |
+| Route | UIA | Chromium | SAP | Android |
+| --- | --- | --- | --- | --- |
+| `GET element` | Works. `500` if the cursor cannot be read. | Works. `503` if no single extension is connected. `504` if the extension does not answer in time. | Works. `500` if the cursor cannot be read. `503` if SAP Logon is not running, scripting is disabled, or SAP GUI does not answer in time. | Works. `503` if no single recorder app is connected. `504` if the app does not answer in time. |
+| `GET observe` | Works. | Not implemented. `501`. | Works. | Works, through adb on the device being recorded. `503` if adb or the device is unavailable. |
+| `POST point` | Works. | Not implemented. `501`. | Works. | Not implemented. `501`. |
+| `POST ground` | Works. | Not implemented. `501`. | Works. `503` for the same reasons as `element`. | Not implemented. `501`. |
+| `POST focus` | Works. | Not implemented. `501`. | Works. `400` if neither `windowTitle` nor `processName` is given. | Not implemented. `501`. |
 
 For Chromium, the repository throws `NotImplementedException` for `GetScreenshot`, `MovePointer`, `ResolveGroundedElement` and `SetWindowFocus` (`ChromiumRecorderRepository.cs:152,160,202,210`). The controller turns each one into a `501` problem response (`src/G4.Recorders.Chromium/Controllers/RecorderController.cs:105,140,245,280`).
 

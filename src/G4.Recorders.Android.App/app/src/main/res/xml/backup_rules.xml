@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Android 11-and-older counterpart of data_extraction_rules.xml: the recorder backs up nothing, because the host
+     sends its settings on every start. -->
+<full-backup-content>
+    <exclude domain="root" />
+    <exclude domain="sharedpref" />
+</full-backup-content>

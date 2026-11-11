@@ -9,6 +9,9 @@
   <Folder Name="/.github/">
     <File Path="../.github/workflows/release-pipline.yml" />
   </Folder>
+  <Project Path="G4.Recorders.Android.Domain.UnitTests/G4.Recorders.Android.Domain.UnitTests.csproj" />
+  <Project Path="G4.Recorders.Android.Domain/G4.Recorders.Android.Domain.csproj" />
+  <Project Path="G4.Recorders.Android/G4.Recorders.Android.csproj" />
   <Project Path="G4.Recorders.Chromium.Domain/G4.Recorders.Chromium.Domain.csproj" />
   <Project Path="G4.Recorders.Chromium.Settings/G4.Recorders.Chromium.Settings.csproj" Id="a65c8c6b-759a-436c-b9b3-1f2c0c20dc56" />
   <Project Path="G4.Recorders.Chromium/G4.Recorders.Chromium.csproj" Id="9bde48f0-16b1-4107-be5f-b300a39b7489" />

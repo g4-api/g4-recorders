@@ -14,14 +14,14 @@ Recorder messages are written to the console window of the recorder. Messages fr
 
 - **Cause:** The recorder is not running, it listens on another port, or another program already holds the port. The G4 Hub Worker also defaults to port 9955, the UIA recorder port.
 - **Check:** Look at the recorder console window. Check the `Url` value in the recorder's `appsettings.json`. Run `netstat -ano | findstr :9955` to see who holds a port.
-- **Fix:** Start the recorder, or change its port as in [Module 5](05-ports-origins-and-logs.md).
+- **Fix:** Start the recorder, or change its port as in [Module 6](06-ports-origins-and-logs.md).
 - **Source:** `src/G4.Recorders.Uia/appsettings.json:14`
 
 ### The browser blocks a call to the recorder with a CORS error
 
 - **Cause:** The origin of your page is not in the allowed list. Origins are matched exactly, including the scheme and the port.
 - **Check:** Compare the origin shown in the browser error with the entries of `ORIGINS` or `AllowedOrigins`.
-- **Fix:** Add the origin as in [Module 5](05-ports-origins-and-logs.md), then restart the recorder.
+- **Fix:** Add the origin as in [Module 6](06-ports-origins-and-logs.md), then restart the recorder.
 - **Source:** `src/G4.Recorders.Uia/Program.cs:134-146`
 
 ---
@@ -206,11 +206,71 @@ Recorder messages are written to the console window of the recorder. Messages fr
 
 ---
 
+## Android recorder
+
+### adb was not found on the recorder host
+
+- **Cause:** The recorder looks for adb in `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `android/platform-tools` under the sandbox (`G4_SANDBOX`, or two folders above the program), and the `PATH`. None of them holds it.
+- **Check:** The message lists every path it tried.
+- **Fix:** Install the Android SDK platform-tools and set `ANDROID_HOME` in the environment the recorder starts from, then restart the recorder.
+- **Source:** `src/G4.Recorders.Android.Domain/Adb/AdbPathResolver.cs`
+
+### No Android device is connected
+
+- **Cause:** `adb devices` lists no device in the `device` state.
+- **Check:** Run `adb devices`. `unauthorized` waits for you to accept the prompt on the device; `offline` needs a reconnect.
+- **Fix:** Connect a device with USB debugging on, or start an emulator, then start the recording again.
+- **Source:** `src/G4.Recorders.Android.Domain/AndroidRecorderLauncher.cs`, `ResolveSerialAsync`
+
+### More than one Android device is connected; set appium:udid to choose one
+
+- **Cause:** Several devices are connected and the request names none. The same check reports `Device 'SERIAL' is not connected` when `appium:udid` names a device adb does not list.
+- **Check:** Compare the serials in the message with `adb devices`.
+- **Fix:** Send `appium:udid` in `capabilities.alwaysMatch`.
+- **Source:** `src/G4.Recorders.Android.Domain/AndroidRecorderLauncher.cs`, `ResolveSerialAsync`
+
+### Recorder app not found on the recorder host
+
+- **Cause:** The `G4.Recorders.Android.App.Drop` folder, which holds `g4-recorder.apk`, is missing next to the program.
+- **Check:** Look for `G4.Recorders.Android.App.Drop/g4-recorder.apk` in the recorder folder.
+- **Fix:** Unpack the whole release asset again. For a source build, run the app's Gradle build (`./gradlew assembleRelease` in `src/G4.Recorders.Android.App`), which fills the drop folder, then build the host.
+- **Source:** `src/G4.Recorders.Android.Domain/AndroidRecorderLauncher.cs`, `StartAsync`
+
+### Installing g4-recorder.apk failed
+
+- **Cause:** adb could not install the recorder app, for example because the device has too little space or refuses debug installs. A recorder app signed on another build machine is not a cause: the recorder uninstalls it and installs its own.
+- **Check:** The message ends with adb's own `Failure [CODE]` line.
+- **Fix:** Act on the failure code, then start the recording again.
+- **Source:** `src/G4.Recorders.Android.Domain/AndroidRecorderLauncher.cs`, `InstallRecorderAsync`
+
+### Failed to start PACKAGE on device SERIAL
+
+- **Cause:** `appium:appPackage` or `appium:appActivity` names an app or activity the device does not have.
+- **Check:** Run `adb shell pm list packages` for the package name. Leave `appium:appActivity` empty to start the package's launcher activity.
+- **Fix:** Correct the capability and start again.
+- **Source:** `src/G4.Recorders.Android.Domain/AndroidRecorderLauncher.cs`, `StartApplicationAsync`
+
+### No Android recorder app is connected
+
+- **Cause:** A peek or flush reached the recorder while the app on the device was not connected to it. The app connects through the port that `adb reverse` maps on start; restarting adb (`adb kill-server`, `adb root`) removes that mapping.
+- **Check:** Open **G4 Android Recorder** on the device; it shows the connection state and the last error. Run `adb reverse --list`.
+- **Fix:** Stop the recording and start it again, so the recorder maps the port again.
+- **Source:** `src/G4.Recorders.Android.Domain/AndroidRecorderRepository.cs`, `GetElementChainAsync`
+
+### The Android recorder failed to STEP while stopping
+
+- **Cause:** One restore step on stop failed, for example because the device disconnected. The other steps still ran.
+- **Check:** The console shows the warning when `G4.Recorders` logs at `Warning`, as in [Module 6](06-ports-origins-and-logs.md).
+- **Fix:** Restore that step by hand. `adb shell settings delete secure enabled_accessibility_services` switches the recorder service off when no other service was on; `adb reverse --remove tcp:9958` removes the port mapping.
+- **Source:** `src/G4.Recorders.Android.Domain/AndroidRecorderLauncher.cs`, `StopAsync`
+
+---
+
 ## Any recorder
 
 ### An unhandled exception occurred
 
 - **Cause:** A REST call failed in a way the recorder did not expect. The recorder logs the exception and answers with an error.
-- **Check:** Read the exception in the console. Raise the log level as in [Module 5](05-ports-origins-and-logs.md) if the console shows too little.
+- **Check:** Read the exception in the console. Raise the log level as in [Module 6](06-ports-origins-and-logs.md) if the console shows too little.
 - **Fix:** Fix the cause named by the exception, then repeat the call.
 - **Source:** `src/G4.Recorders.Common.Domain/Middlewares/ErrorHandlingMiddleware.cs:117`

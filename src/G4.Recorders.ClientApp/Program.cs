@@ -36,6 +36,7 @@ var configuration = new ConfigurationBuilder()
 var uiaUrl = configuration["Hubs:UiaUrl"] ?? "http://localhost:9955/hub/v4/g4/peek";
 var chromiumUrl = configuration["Hubs:ChromiumUrl"] ?? "http://localhost:9956/hub/v4/g4/peek";
 var sapUrl = configuration["Hubs:SapUrl"] ?? "http://localhost:9957/hub/v4/g4/peek";
+var androidUrl = configuration["Hubs:AndroidUrl"] ?? "http://localhost:9958/hub/v4/g4/peek";
 var chromiumBinary = configuration["Chromium:BinaryPath"] ?? string.Empty;
 var chromiumArguments = configuration.GetSection("Chromium:Arguments").Get<string[]>() ?? [];
 
@@ -44,6 +45,7 @@ var chromiumArguments = configuration.GetSection("Chromium:Arguments").Get<strin
 var isUiaEnabled = configuration.GetValue("Hubs:UiaEnabled", defaultValue: true);
 var isChromiumEnabled = configuration.GetValue("Hubs:ChromiumEnabled", defaultValue: true);
 var isSapEnabled = configuration.GetValue("Hubs:SapEnabled", defaultValue: true);
+var isAndroidEnabled = configuration.GetValue("Hubs:AndroidEnabled", defaultValue: true);
 
 if (args.Contains("--no-uia")) { isUiaEnabled = false; }
 if (args.Contains("--uia")) { isUiaEnabled = true; }
@@ -51,6 +53,8 @@ if (args.Contains("--no-chromium")) { isChromiumEnabled = false; }
 if (args.Contains("--chromium")) { isChromiumEnabled = true; }
 if (args.Contains("--no-sap")) { isSapEnabled = false; }
 if (args.Contains("--sap")) { isSapEnabled = true; }
+if (args.Contains("--no-android")) { isAndroidEnabled = false; }
+if (args.Contains("--android")) { isAndroidEnabled = true; }
 
 // Read the SAP StartRecorder values; --sap-logon <path> overrides Sap:Logon:Path. Unset values stay null, so the
 // recorder resolves them from its own environment and appsettings.json.
@@ -76,11 +80,12 @@ var sapParameters = new
     streams = NullIfEmptyList(configuration.GetSection("Sap:Recorder:Streams").Get<string[]>())
 };
 
-if (!isUiaEnabled && !isChromiumEnabled && !isSapEnabled)
+if (!isUiaEnabled && !isChromiumEnabled && !isSapEnabled && !isAndroidEnabled)
 {
     Console.WriteLine(
         "Every hub is disabled. Enable at least one in appsettings.json " +
-        "(Hubs:UiaEnabled / Hubs:ChromiumEnabled / Hubs:SapEnabled) or via --uia / --chromium / --sap.");
+        "(Hubs:UiaEnabled / Hubs:ChromiumEnabled / Hubs:SapEnabled / Hubs:AndroidEnabled) or via " +
+        "--uia / --chromium / --sap / --android.");
 
     return;
 }
@@ -89,6 +94,7 @@ if (!isUiaEnabled && !isChromiumEnabled && !isSapEnabled)
 var uiaConnection = isUiaEnabled ? CreateConnection(uiaUrl) : null;
 var chromiumConnection = isChromiumEnabled ? CreateConnection(chromiumUrl) : null;
 var sapConnection = isSapEnabled ? CreateConnection(sapUrl) : null;
+var androidConnection = isAndroidEnabled ? CreateConnection(androidUrl) : null;
 
 if (uiaConnection is not null)
 {
@@ -103,6 +109,11 @@ if (chromiumConnection is not null)
 if (sapConnection is not null)
 {
     RegisterHandlers(sapConnection, source: "SAP", color: ConsoleColor.Magenta);
+}
+
+if (androidConnection is not null)
+{
+    RegisterHandlers(androidConnection, source: "ANDROID", color: ConsoleColor.Yellow);
 }
 
 // Cancelled by Ctrl+C or the 'q' key; drives both the connect retries and the key loop shutdown.
@@ -135,6 +146,11 @@ if (sapConnection is not null)
     connectTasks.Add(ConnectWithRetryAsync(sapConnection, "SAP", ConsoleColor.Magenta, cancellation.Token));
 }
 
+if (androidConnection is not null)
+{
+    connectTasks.Add(ConnectWithRetryAsync(androidConnection, "ANDROID", ConsoleColor.Yellow, cancellation.Token));
+}
+
 await Task.WhenAll(connectTasks);
 
 // Apply this client's SAP values once connected; the recorder fills unset ones from its environment and settings.
@@ -159,6 +175,11 @@ if (chromiumConnection is not null)
 if (sapConnection is not null)
 {
     await sapConnection.DisposeAsync();
+}
+
+if (androidConnection is not null)
+{
+    await androidConnection.DisposeAsync();
 }
 
 // Creates a hub connection with automatic reconnect (applies only after the first connect).

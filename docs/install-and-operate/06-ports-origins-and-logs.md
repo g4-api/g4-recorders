@@ -1,6 +1,6 @@
-# Module 5: Ports, origins and log levels
+# Module 6: Ports, origins and log levels
 
-[⬅ Back to overview](README.md) · [⬅ Module 4](04-sap-recorder.md) · [Next: Module 6 ➡](06-verify-with-the-ping-routes.md)
+[⬅ Back to overview](README.md) · [⬅ Module 5](05-android-recorder.md) · [Next: Module 7 ➡](07-verify-with-the-ping-routes.md)
 
 ⏱️ **About 5 minutes**
 
@@ -22,12 +22,14 @@ In this module, you will:
 | UIA | 9955 | `Kestrel:Endpoints:Http:Url` in `appsettings.json` |
 | Chromium | 9956 | `Kestrel:Endpoints:Http:Url` in `appsettings.json` |
 | SAP | 9957 | `Kestrel:Endpoints:Http:Url` in `appsettings.json` |
+| Android | 9958 | `Kestrel:Endpoints:Http:Url` in `appsettings.json` |
+| Android | 9958 | `Kestrel:Endpoints:Http:Url` in `appsettings.json` |
 
 Each value looks like `http://+:9955`. The `+` means the recorder listens on every network address of the machine.
 
 > **⚠️ Warning:** The G4 Hub Worker also defaults to port 9955, the same port as the UIA recorder. Do not run both on one machine without changing one of them.
 
-If you start a recorder from Visual Studio or with `dotnet run`, the launch profile applies instead. For UIA it is `http://localhost:5031`, for Chromium `http://localhost:5064` and for SAP `http://localhost:9957`.
+If you start a recorder from Visual Studio or with `dotnet run`, the launch profile applies instead. For UIA it is `http://localhost:5031`, for Chromium `http://localhost:5064`, for SAP `http://localhost:9957` and for Android `http://localhost:9958`.
 
 ---
 
@@ -89,14 +91,14 @@ You can list origins in either place. The environment variable wins when it is s
 
 Log levels are in the `Logging:LogLevel` section of `appsettings.json`. The shipped values are:
 
-| Category | UIA | Chromium | SAP |
-| --- | --- | --- | --- |
-| `Default` | `Error` | `Error` | `Error` |
-| `G4.Api` | `Information` | `Information` | `Information` |
-| `G4.Recorders` | `Warning` | not set | `Warning` |
-| `Microsoft.AspNetCore` | `Warning` | `Warning` | `Warning` |
+| Category | UIA | Chromium | SAP | Android |
+| --- | --- | --- | --- | --- |
+| `Default` | `Error` | `Error` | `Error` | `Error` |
+| `G4.Api` | `Information` | `Information` | `Information` | `Information` |
+| `G4.Recorders` | `Warning` | not set | `Warning` | not set |
+| `Microsoft.AspNetCore` | `Warning` | `Warning` | `Warning` | `Warning` |
 
-The recorder code logs under categories that start with `G4.Recorders`. The Chromium file has no `G4.Recorders` entry, so its recorder messages fall under `Default`, which is `Error`.
+The recorder code logs under categories that start with `G4.Recorders`. The Chromium and Android files have no `G4.Recorders` entry, so their recorder messages fall under `Default`, which is `Error`. The Android recorder logs a failed restore step on stop as a warning, so raise `G4.Recorders` to `Warning` to see it.
 
 1. Open the recorder's `appsettings.json`.
 2. Set the category you need to `Information`, or to `Debug` while you investigate.
@@ -120,11 +122,11 @@ The recorder code logs under categories that start with `G4.Recorders`. The Chro
 
 ## ✔ Check your work
 
-- [ ] You know the default ports 9955, 9956 and 9957
+- [ ] You know the default ports 9955, 9956, 9957 and 9958
 - [ ] You know the Hub Worker port can collide with UIA
 - [ ] You know the two places to list an origin
 - [ ] You can raise the `G4.Recorders` log level
 
 ---
 
-**Next:** [Module 6: Verify with the ping routes](06-verify-with-the-ping-routes.md)
+**Next:** [Module 7: Verify with the ping routes](07-verify-with-the-ping-routes.md)

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android lint findings this module accepts on purpose; each one says why. -->
+<lint>
+    <!-- compileSdk and targetSdk stay at the levels the recorder was tested on end to end (Android 15 emulator);
+         raise them together with a new device test. -->
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="OldTargetApi" severity="ignore" />
+    <!-- The SignalR client stays on the major version of the .NET 10 recorder host it talks to. -->
+    <issue id="NewerVersionAvailable" severity="ignore" />
+    <!-- Reported for a third-party library's bundled lint checks, not for this module's code. -->
+    <issue id="ObsoleteLintCustomCheck" severity="ignore" />
+    <!-- The launcher icons are the G4 extension icon at fixed sizes; an adaptive icon is a separate design task. -->
+    <issue id="IconLauncherShape" severity="ignore" />
+</lint>

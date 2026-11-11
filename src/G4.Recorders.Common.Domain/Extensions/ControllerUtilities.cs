@@ -41,6 +41,35 @@ namespace G4.Recorders.Common.Domain.Extensions
         }
 
         /// <summary>
+        /// Writes the G4 Android Recorder ASCII logo to the console, including the specified version number.
+        /// </summary>
+        /// <param name="version">The version number to display in the logo.</param>
+        public static void WriteAndroidAsciiLogo(string version)
+        {
+            // Compose the banner with the release version the pipeline stamps into Program.cs.
+            var logo = new string[]
+            {
+                "     _              _           _     _      ",
+                "    / \\   _ __   __| |_ __ ___ (_) __| |     ",
+                "   / _ \\ | '_ \\ / _` | '__/ _ \\| |/ _` |     ",
+                "  / ___ \\| | | | (_| | | | (_) | | (_| |     ",
+                " /_/   \\_\\_| |_|\\__,_|_|  \\___/|_|\\__,_|     ",
+                "                                             ",
+                "            G4 - Android Recorder            ",
+                "            Powered by Android Accessibility ",
+                "                                             ",
+                "  Version: " + version + "                   ",
+                "  Project: https://github.com/g4-api/g4-recorders",
+                "                                             "
+             };
+
+            // Replace any previous console output with the banner, using UTF-8 so the art renders unchanged.
+            Console.Clear();
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            Console.WriteLine(string.Join("\n", logo));
+        }
+
+        /// <summary>
         /// Writes the G4 SapRecorder ASCII logo to the console, including the specified version number.
         /// </summary>
         /// <param name="version">The version number to display in the logo.</param>

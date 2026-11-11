@@ -432,6 +432,112 @@
         </fieldset>
       </section>
 
+      <section class="recorder-options__section"
+               data-test-id="dom-context-settings-section"
+               aria-label="DOM context settings">
+        <h2 class="recorder-options__section-title">
+          DOM Context
+        </h2>
+
+        <div class="recorder-options__control-row">
+          <button type="button"
+                  id="dom-context-switch"
+                  class="switch"
+                  data-test-id="dom-context-switch"
+                  aria-checked="false"
+                  aria-describedby="dom-context-hint"
+                  role="switch">
+            <span class="switch__track">
+              <span class="switch__knob"></span>
+            </span>
+            <span class="switch__label">Include the markup around the target element</span>
+          </button>
+        </div>
+        <span id="dom-context-hint"
+              class="recorder-options__hint"
+              data-test-id="dom-context-hint">
+          Clicks, typed text, and hovers carry a cleaned HTML snapshot (Base64) so clients can heal or optimise locators. Scripts, styles, event handlers, and sensitive values are left out.
+        </span>
+
+        <div class="recorder-options__field">
+          <label class="recorder-options__label" for="dom-context-levels-input">
+            Ancestor levels
+          </label>
+          <div id="dom-context-levels-field"
+               class="number-field"
+               data-test-id="dom-context-levels-field">
+            <input type="number"
+                   id="dom-context-levels-input"
+                   class="number-field__input"
+                   data-test-id="dom-context-levels-input"
+                   aria-describedby="dom-context-levels-hint"
+                   max="10"
+                   min="0"
+                   step="1">
+            <span class="number-field__spin">
+              <button type="button"
+                      class="number-field__step number-field__step--up"
+                      data-test-id="dom-context-levels-step-up"
+                      aria-label="Increase ancestor levels"
+                      tabindex="-1">
+                &#9650;
+              </button>
+              <button type="button"
+                      class="number-field__step number-field__step--down"
+                      data-test-id="dom-context-levels-step-down"
+                      aria-label="Decrease ancestor levels"
+                      tabindex="-1">
+                &#9660;
+              </button>
+            </span>
+          </div>
+          <span id="dom-context-levels-hint"
+                class="recorder-options__hint"
+                data-test-id="dom-context-levels-hint">
+            How many parent elements above the target the snapshot starts from. 0 captures only the target.
+          </span>
+        </div>
+
+        <div class="recorder-options__field">
+          <label class="recorder-options__label" for="dom-context-size-input">
+            Maximum snapshot size (KB)
+          </label>
+          <div id="dom-context-size-field"
+               class="number-field"
+               data-test-id="dom-context-size-field">
+            <input type="number"
+                   id="dom-context-size-input"
+                   class="number-field__input"
+                   data-test-id="dom-context-size-input"
+                   aria-describedby="dom-context-size-hint"
+                   max="256"
+                   min="1"
+                   step="1">
+            <span class="number-field__spin">
+              <button type="button"
+                      class="number-field__step number-field__step--up"
+                      data-test-id="dom-context-size-step-up"
+                      aria-label="Increase maximum snapshot size"
+                      tabindex="-1">
+                &#9650;
+              </button>
+              <button type="button"
+                      class="number-field__step number-field__step--down"
+                      data-test-id="dom-context-size-step-down"
+                      aria-label="Decrease maximum snapshot size"
+                      tabindex="-1">
+                &#9660;
+              </button>
+            </span>
+          </div>
+          <span id="dom-context-size-hint"
+                class="recorder-options__hint"
+                data-test-id="dom-context-size-hint">
+            The snapshot drops one level at a time until it fits, then falls back to the target&rsquo;s own tag.
+          </span>
+        </div>
+      </section>
+
       <section class="recorder-options__actions"
                data-test-id="settings-actions-section"
                aria-label="Settings actions">

@@ -45,6 +45,7 @@ The extension's contract builder (`lib/recorder-contract.js`) still adds an even
 | --- | --- |
 | `locator` | absolute XPath of the trigger element |
 | `properties.cssSelector` | unique CSS selector of the element |
+| `properties.domContext` / `properties.domContextLength` | trigger node of element events only: Base64 (UTF-8) of the cleaned markup around the element, and its decoded byte count (`lib/dom-context.js`) |
 | `controlType` | ARIA `role`, else the tag name |
 | `automationId` | element `id`, else `data-test-id` |
 | `name` | accessible name (aria-label, aria-labelledby, alt/title/placeholder, text) |

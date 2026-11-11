@@ -15,7 +15,7 @@ A recording client collects the events a recorder broadcasts and turns them into
 
 ## Capture modes
 
-A UIA recorder can run in three modes. Chromium always records in `standard` mode (`RecordingsRepository.cs`, `ResolveRecorder`).
+A UIA recorder can run in three modes. Chromium and Android always record in `standard` mode (`RecordingsRepository.cs`, `ResolveRecorder`).
 
 | Mode | Meaning | Rules use |
 | --- | --- | --- |
@@ -23,7 +23,7 @@ A UIA recorder can run in three modes. Chromium always records in `standard` mod
 | `user32` | Physical input with element locators. | `User32` plugins with a locator. Offsets are optional (`useOffset`). |
 | `coordinate` | Physical input at absolute positions. | `User32` plugins with no locator. |
 
-The Hub accepts only these three mode names, in lower case, and only the drivers `ChromeDriver` and `UiaDriver`. Anything else is refused with "Recorder mode must be standard, user32, or coordinate." or "Recorder driver must be ChromeDriver or UiaDriver." (`RecordingsRepository.cs:412-415`).
+The Hub accepts only these three mode names, in lower case, and only the drivers `AndroidDriver`, `ChromeDriver` and `UiaDriver`. Anything else is refused with "Recorder mode must be standard, user32, or coordinate." or "Recorder driver must be AndroidDriver, ChromeDriver or UiaDriver." (`RecordingsRepository.cs:410-415`).
 
 ## UIA events to plugins
 
@@ -84,13 +84,17 @@ Chromium events arrive with plugin names already in `event`. The builder keeps t
 
 Unknown event names pass through as element actions, so new extension plugins keep their locator. Events without an `event` name are skipped. The full list of names is in [Chromium events](chromium-events.md).
 
+## Android events to plugins
+
+Android events also arrive with plugin names in `event`, and their chains run target first, so the builder converts them with the same Chromium rules (`NewJob`, `IsLaunchable`). `InvokeClick`, `InvokeLongClick` and `SendKeys` keep their locator, `InvokeScroll` gets the same argument as above, and `SwitchActivity` and `HideSoftKeyboard` carry an empty locator, so their rules have no `onElement`. The recorder's last job ends with `CloseBrowser`, which closes the Appium session on replay. The full list of names is in [Android events](android-events.md).
+
 ## Think time
 
 When think time is on, the builder adds a `WaitFlow` action between two rules when the gap between their timestamps is larger than the minimum. The wait is the gap, capped at the maximum, in the argument `{{$ --Timeout:<ms>}}`, with the display name "Think Time (<seconds> seconds)" (`NewTimedRules`). The Hub refuses think-time values that are negative or where the maximum is below the minimum (`RecordingsRepository.cs`).
 
 ## What is not mapped
 
-- SAP recorders. The Hub accepts only `ChromeDriver` and `UiaDriver`, and the builder has no code for the `user32` and `nativeSap` streams (a search for `nativeSap` in the Hub `Recordings` folder finds nothing). A SAP recording has to be consumed from the hub directly. See [SAP messages](sap-message.md).
+- SAP recorders. The Hub accepts only `AndroidDriver`, `ChromeDriver` and `UiaDriver`, and the builder has no code for the `user32` and `nativeSap` streams (a search for `nativeSap` in the Hub `Recordings` folder finds nothing). A SAP recording has to be consumed from the hub directly. See [SAP messages](sap-message.md).
 - Pre and post scripts. The Hub refuses them with "Pre/post scripts are deferred to a later layer; disable their flags." (`RecordingsRepository.cs`).
 
 ## Next
