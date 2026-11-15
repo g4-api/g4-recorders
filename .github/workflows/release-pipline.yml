@@ -388,9 +388,13 @@ jobs:
         distribution: temurin
         java-version: 21
 
-    # Step to setup the Android SDK (platform and build tools are installed by the Android Gradle plugin)
+    # Step to setup the Android SDK (platform and build tools are installed by the Android Gradle plugin).
+    # The packages input is pinned because the action defaults to "tools platform-tools", and the obsolete
+    # "tools" package was removed from Google's repository, which makes sdkmanager fail the whole job.
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
+      with:
+        packages: platform-tools
 
     # Step to run the app's unit tests and build the release APK, which the build exports to
     # src/G4.Recorders.Android.App.Drop/g4-recorder.apk
