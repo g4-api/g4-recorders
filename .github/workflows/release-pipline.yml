@@ -632,7 +632,8 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Job to build the Chromium recorder Docker image (recorder host + Chrome for Testing + VNC)
-  # and push it to Docker Hub. Runs only after the GitHub release was created.
+  # and push it to Docker Hub, the same way g4-services publishes g4api/g4-hub. Runs only after
+  # the GitHub release was created.
   publish-chromium-recorder-docker:
     name: Publish G4 Recorders - Chromium Docker Image Version ${{ needs.new-version.outputs.buildVersion }}
     runs-on: ubuntu-latest
@@ -644,7 +645,6 @@ jobs:
     # Set environment variables specific to the Docker job
     env:
       buildVersion: ${{ needs.new-version.outputs.buildVersion }}
-      imageName: g4api/g4-chromium-recorder
 
     # The Docker build context is the repository root, not the default src folder
     defaults:
@@ -679,16 +679,11 @@ jobs:
 
     # Step to build the Docker image
     - name: Build Docker Image
-      run: >-
-        docker build
-        -f ./docker/${{ env.chromiumProjectName }}.Dockerfile
-        -t ${{ env.imageName }}:latest
-        -t ${{ env.imageName }}:${{ env.buildVersion }}
-        .
+      run: docker build -f ./docker/G4.Recorders.Chromium.Dockerfile -t g4api/g4-chromium-recorder:latest -t g4api/g4-chromium-recorder:${{ env.buildVersion }} .
 
     # Step to push the Docker image
     - name: Push Docker Image 'latest'
-      run: docker push ${{ env.imageName }}:latest
+      run: docker push g4api/g4-chromium-recorder:latest
 
     - name: Push Docker Image '${{ env.buildVersion }}'
-      run: docker push ${{ env.imageName }}:${{ env.buildVersion }}
+      run: docker push g4api/g4-chromium-recorder:${{ env.buildVersion }}

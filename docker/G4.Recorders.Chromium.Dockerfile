@@ -86,11 +86,39 @@ RUN ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
 #   /g4/browsers/chrome/chrome                browser (wrapper around Chrome for Testing)
 ENV G4_SANDBOX=/g4
 COPY --from=build /app/publish /g4/bot-utilities/chromium-recorder-x64
-COPY docker/chromium-recorder/chrome /g4/browsers/chrome/chrome
+# Chrome wrapper. The recorder launcher resolves the browser at $G4_SANDBOX/browsers/chrome/chrome, so this
+# script takes that path and forwards to the real Chrome for Testing binary. It adds the flags every
+# container launch needs, so recorder clients never have to send them:
+#   --no-sandbox             the container has no user namespaces for the Chrome sandbox
+#   --disable-dev-shm-usage  keeps Chrome stable when /dev/shm is small
+#   --start-maximized        fills the virtual screen shown through VNC
+COPY <<'EOF' /g4/browsers/chrome/chrome
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Swap the Selenium node process for the recorder host and drop the Grid video programs.
-# The display programs (xvfb, vnc, novnc) stay as the base image defines them.
-COPY docker/chromium-recorder/g4-recorder.conf /etc/supervisor/conf.d/g4-recorder.conf
+exec /opt/chrome-for-testing/chrome --no-sandbox --disable-dev-shm-usage --start-maximized "$@"
+EOF
+
+# Swap the Selenium node process for the recorder host (supervisor program below) and drop the
+# Grid video programs. The display programs (xvfb, vnc, novnc) stay as the base image defines them.
+COPY <<'EOF' /etc/supervisor/conf.d/g4-recorder.conf
+; G4 Chromium recorder host. Runs after the display stack (xvfb 0, vnc 5, noVNC 10), so the
+; browser it launches has a screen to draw on. When the recorder exits, supervisord is stopped
+; too, so the container exits and the restart policy brings it back.
+[program:g4-chromium-recorder]
+priority=15
+directory=/g4/bot-utilities/chromium-recorder-x64
+command=bash -c "dotnet G4.Recorders.Chromium.dll; EXIT_CODE=$?; kill -s SIGINT `cat ${SE_SUPERVISORD_PID_FILE}`; exit $EXIT_CODE"
+stopasgroup=true
+killasgroup=true
+autostart=true
+autorestart=false
+startsecs=0
+startretries=0
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+EOF
 RUN sed -i '/^\[program:selenium-node\]/,$d' /etc/supervisor/conf.d/selenium.conf \
     && rm -f /etc/supervisor/conf.d/recorder.conf /etc/supervisor/conf.d/uploader.conf \
     && sed -i 's/\r$//' /g4/browsers/chrome/chrome /etc/supervisor/conf.d/g4-recorder.conf \
