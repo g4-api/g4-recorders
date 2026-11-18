@@ -1,0 +1,10 @@
+# Keep the Docker build context small: only sources are needed, never local build output.
+**/bin/
+**/obj/
+**/.vs/
+**/.gradle/
+**/build/
+**/node_modules/
+.git/
+artifacts/
+docs/
