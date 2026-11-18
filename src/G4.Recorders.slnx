@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/.docker/">
+    <File Path="../.dockerignore" />
+    <File Path="../docker/G4.Recorders.Chromium.Dockerfile" />
+  </Folder>
   <Folder Name="/.docs/">
     <File Path="../README.md" />
   </Folder>
