@@ -51,7 +51,7 @@ jobs:
     steps:
     # Step to checkout the repository
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Step to parse the build version for GitHub tag
     - name: Parse Build Version for GitHub Tag
@@ -85,11 +85,11 @@ jobs:
     steps:
     # Step to checkout the repository
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Step to setup .NET Core SDK
     - name: Setup .NET Core SDK
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.x
 
@@ -100,7 +100,7 @@ jobs:
 
     # Add msbuild to PATH to ensure that MSBuild is available for the build and publish steps
     - name: Add msbuild to PATH
-      uses: microsoft/setup-msbuild@v2
+      uses: microsoft/setup-msbuild@v3
 
     # Step to set the G4 Recorders - UIA version
     - name: Set Version v${{ env.buildVersion }}
@@ -135,7 +135,7 @@ jobs:
 
     # Step to upload the build artifact
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: uia-recorder-drop
         path: ${{ env.artifactStagingDirectory }}/*.zip
@@ -158,11 +158,11 @@ jobs:
     steps:
     # Step to checkout the repository
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Step to setup .NET Core SDK
     - name: Setup .NET Core SDK
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.x
 
@@ -173,7 +173,7 @@ jobs:
 
     # Add msbuild to PATH (required for the WPF + COMReference PathFinder project)
     - name: Add msbuild to PATH
-      uses: microsoft/setup-msbuild@v2
+      uses: microsoft/setup-msbuild@v3
 
     # Step to publish the project
     - name: Publish
@@ -191,7 +191,7 @@ jobs:
 
     # Step to upload the build artifact
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: uia-path-finder-drop
         path: ${{ env.artifactStagingDirectory }}/*.zip
@@ -214,11 +214,11 @@ jobs:
     steps:
     # Step to checkout the repository
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Step to setup .NET Core SDK
     - name: Setup .NET Core SDK
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.x
 
@@ -255,7 +255,7 @@ jobs:
 
     # Step to upload the build artifact
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: sap-recorder-drop
         path: ${{ env.artifactStagingDirectory }}/*.zip
@@ -301,11 +301,11 @@ jobs:
     steps:
     # Step to checkout the repository
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Step to setup .NET Core SDK
     - name: Setup .NET Core SDK
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.x
 
@@ -364,7 +364,7 @@ jobs:
 
     # Step to upload the build artifact
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: ${{ matrix.artifactName }}
         path: ${{ env.artifactStagingDirectory }}/*
@@ -379,11 +379,11 @@ jobs:
     steps:
     # Step to checkout the repository
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Step to setup the JDK the Gradle build targets
     - name: Setup JDK 21
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         distribution: temurin
         java-version: 21
@@ -392,7 +392,7 @@ jobs:
     # The packages input is pinned because the action defaults to "tools platform-tools", and the obsolete
     # "tools" package was removed from Google's repository, which makes sdkmanager fail the whole job.
     - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+      uses: android-actions/setup-android@v4
       with:
         packages: platform-tools
 
@@ -407,7 +407,7 @@ jobs:
 
     # Step to upload the APK for the host publish jobs
     - name: Upload the APK
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: android-recorder-app-drop
         path: src/${{ env.androidAppProjectName }}.Drop/g4-recorder.apk
@@ -451,18 +451,18 @@ jobs:
     steps:
     # Step to checkout the repository
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Step to put the freshly built APK into the drop folder the host project links, replacing any committed copy
     - name: Download the APK
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: android-recorder-app-drop
         path: ${{ github.workspace }}/src/${{ env.androidAppProjectName }}.Drop
 
     # Step to setup .NET Core SDK
     - name: Setup .NET Core SDK
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.x
 
@@ -531,7 +531,7 @@ jobs:
 
     # Step to upload the build artifact
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: ${{ matrix.artifactName }}
         path: ${{ env.artifactStagingDirectory }}/*
@@ -556,71 +556,71 @@ jobs:
     steps:
     # Step to checkout the repository
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Step to download G4 Recorders - UIA build artifacts
     - name: Download G4 Recorders - UIA Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: uia-recorder-drop
 
     # Step to download G4 Recorders - UIA PathFinder build artifacts
     - name: Download G4 Recorders - UIA PathFinder Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: uia-path-finder-drop
 
     # Step to download G4 Recorders - Chromium build artifacts
     - name: Download G4 Recorders - Chromium Windows Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: chromium-recorder-win-drop
 
     - name: Download G4 Recorders - Chromium Linux Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: chromium-recorder-linux-drop
 
     - name: Download G4 Recorders - Chromium macOS Intel Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: chromium-recorder-osx-x64-drop
 
     - name: Download G4 Recorders - Chromium macOS Apple Silicon Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: chromium-recorder-osx-arm64-drop
 
     # Step to download G4 Recorders - SAP build artifacts
     - name: Download G4 Recorders - SAP Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: sap-recorder-drop
 
     # Step to download G4 Recorders - Android build artifacts
     - name: Download G4 Recorders - Android Windows Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: android-recorder-win-drop
 
     - name: Download G4 Recorders - Android Linux Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: android-recorder-linux-drop
 
     - name: Download G4 Recorders - Android macOS Intel Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: android-recorder-osx-x64-drop
 
     - name: Download G4 Recorders - Android macOS Apple Silicon Build Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: android-recorder-osx-arm64-drop
 
     # Step to create a GitHub release and tag
     - name: Create GitHub Release & Tag v${{ env.buildVersion }}
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         files: |
           ./*.zip
@@ -654,7 +654,7 @@ jobs:
     steps:
     # Step to checkout the repository
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Step to set the G4 Recorders - Chromium version
     - name: Set Version v${{ env.buildVersion }}
