@@ -28,6 +28,8 @@
     // the C# ChromiumPeekHub method names exactly (case-insensitive on the wire).
     const HUB_METHOD_NAMES = {
         registerRecorder: "RegisterRecorder",
+        sendLocatorAmendment: "SendLocatorAmendment",
+        sendLocatorTestResponse: "SendLocatorTestResponse",
         sendPeekResponse: "SendPeekResponse",
         sendRecordingEvent: "SendRecordingEvent"
     };
@@ -42,6 +44,10 @@
 
     // Name of the server-to-extension request that asks the active browser context to resolve a DOM element.
     const SERVER_PEEK_REQUEST_NAME = "ReceivePeekRequest";
+
+    // Name of the server-to-extension request that asks the active tab to evaluate one locator, so a
+    // client can test a locator against the live browser while the recording is running.
+    const SERVER_LOCATOR_TEST_REQUEST_NAME = "ReceiveLocatorTestRequest";
 
     // The hub path appended to a server origin to form a full hub URL. Used when the launcher's
     // bootstrap page reports which server this freshly launched browser must connect to.
@@ -58,6 +64,13 @@
     const MESSAGE_CHANNELS = {
         recordingEvent: "g4-recorder/recording-event",
         peekRequest: "g4-recorder/peek-request",
+        // Sent by the worker to every frame of the active tab to evaluate one locator on demand.
+        locatorTest: "g4-recorder/locator-test",
+        // Sent by a content script when a page loads, to fetch the locators an earlier load of the
+        // same page recorded so they can be re-tested on the fresh document.
+        locatorRevisit: "g4-recorder/locator-revisit",
+        // Sent by a content script when a hot test changed the verdicts of recorded locators.
+        locatorVerdict: "g4-recorder/locator-verdict",
         requestStatus: "g4-recorder/request-status",
         statusChanged: "g4-recorder/status-changed",
         clearStack: "g4-recorder/clear-stack",
@@ -100,6 +113,27 @@
         isDomContextEnabled: true,
         domContextAncestorLevels: 2,
         domContextMaximumKilobytes: 16,
+        // Locators: every element event carries a ranked list of verified locators. The best one is
+        // an XPath built from what the user sees (label, role and name, placeholder); "UserFacing"
+        // ranks those first, "TestHooks" ranks the explicit test attributes below first.
+        locatorPreference: "UserFacing",
+        // Attributes treated as explicit test hooks, in priority order.
+        locatorTestHookAttributes: [
+            "data-testid",
+            "data-test-id",
+            "data-test",
+            "data-qa",
+            "data-cy",
+            "data-automation-id"
+        ],
+        // The longest text a locator matches in full; longer text is matched by its beginning.
+        locatorMaximumTextLength: 80,
+        // Record the control the user acted on (the button) instead of the innermost node the
+        // click landed on (the icon inside it).
+        isLocatorRetargetEnabled: true,
+        // Keep re-testing recorded locators while recording: after the page settles and whenever
+        // the same page loads again. Changed verdicts correct the already recorded locator.
+        isLocatorHotTestingEnabled: true,
         reconnectDelaysMilliseconds: [0, 2000, 5000, 10000, 30000],
         enabledEvents: {
             click: true,
@@ -137,6 +171,7 @@
         SERVER_BROADCAST_NAME,
         SERVER_CLOSE_BROWSER_NAME,
         SERVER_HUB_PATH,
+        SERVER_LOCATOR_TEST_REQUEST_NAME,
         SERVER_PEEK_REQUEST_NAME,
         SETTINGS_STORAGE_KEY
     });

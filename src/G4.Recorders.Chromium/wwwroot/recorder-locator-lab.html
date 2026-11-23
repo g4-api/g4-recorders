@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>G4 Chromium Recorder — Locator Lab</title>
+
+  <style>
+    :root {
+      --page-foreground: #1f2933;
+      --page-background: #ffffff;
+      --panel-background: #f4f6f8;
+      --muted-foreground: #6b7280;
+      --border-color: #d7dde3;
+      --accent: #2563eb;
+      --accent-foreground: #ffffff;
+      --font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      color: var(--page-foreground);
+      background: var(--page-background);
+      font-family: var(--font-family);
+      line-height: 1.5;
+    }
+
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.4rem;
+    }
+
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.05rem;
+    }
+
+    h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.95rem;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    table {
+      border-collapse: collapse;
+    }
+
+    td {
+      padding: 0.25rem 0.75rem 0.25rem 0;
+    }
+
+    .locator-lab__controls,
+    .locator-lab__section {
+      margin: 0 0 1.25rem;
+      padding: 1rem;
+      background: var(--panel-background);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+    }
+
+    .locator-lab__controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .locator-lab__row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      margin: 0.5rem 0;
+    }
+
+    .locator-lab__banner {
+      margin: 0 0 1rem;
+      padding: 0.5rem 1rem;
+      color: var(--accent-foreground);
+      background: var(--accent);
+      border-radius: 8px;
+    }
+
+    .locator-lab__hint {
+      margin: 0;
+      color: var(--muted-foreground);
+      font-size: 0.85rem;
+    }
+
+    .locator-lab__icon {
+      width: 1rem;
+      height: 1rem;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Locator Lab</h1>
+
+  <p class="locator-lab__hint">
+    Record the controls below, then change the page with the buttons in the first panel and replay.
+    A strong locator keeps finding the same control after every change.
+  </p>
+
+  <section id="locator-lab-controls"
+           class="locator-lab__controls"
+           data-test-id="locator-lab-controls-panel"
+           aria-label="Page changes">
+    <button type="button" id="lab-insert-banner" data-test-id="locator-lab-insert-banner-button">
+      Insert banner
+    </button>
+    <button type="button" id="lab-wrap-content" data-test-id="locator-lab-wrap-content-button">
+      Wrap content
+    </button>
+    <button type="button" id="lab-shuffle-rows" data-test-id="locator-lab-shuffle-rows-button">
+      Shuffle rows
+    </button>
+    <button type="button" id="lab-regenerate-ids" data-test-id="locator-lab-regenerate-ids-button">
+      Regenerate ids
+    </button>
+    <button type="button" id="lab-render-again" data-test-id="locator-lab-render-again-button">
+      Render again
+    </button>
+  </section>
+
+  <!--
+    The controls inside this root are the lab cases. They deliberately carry no data-test-id:
+    the lab exists to prove that a locator can be built from what a user sees. Each case is
+    marked with data-g4-case, an attribute the recorder never reads, so the automated lab test
+    can find the same logical control again after the page changed. data-g4-raw marks the inner
+    node a real click lands on, and data-g4-expect="weak" marks a case that has no user-facing
+    or authored identity at all.
+  -->
+  <main id="lab-app" data-test-id="locator-lab-application-root"></main>
+
+  <script>
+    /**
+     * Locator lab for the G4 Chromium Recorder.
+     *
+     * Renders a set of controls that are hard to locate (repeated captions, generated ids, icon
+     * buttons, shadow DOM) and exposes the page changes that usually break a replay: inserted
+     * content, an extra wrapper, reordered rows, regenerated ids and a full re-render. The same
+     * functions drive the buttons a person clicks and the automated lab test, so both exercise
+     * identical changes.
+     */
+    (function initializeLocatorLab(globalScope) {
+      // How far the generated ids move on each regeneration, so no id is ever reused.
+      const IDENTIFIER_SEED_STEP = 37;
+
+      // The repeated rows of the invoice table and the product list.
+      const INVOICES = [
+        { number: "INV-1041", customer: "Acme" },
+        { number: "INV-1042", customer: "Globex" },
+        { number: "INV-1043", customer: "Initech" }
+      ];
+      const PRODUCTS = ["Apples", "Bananas", "Cherries"];
+
+      // The lab's render state. It lives at module level because every page change is a new
+      // render of the same application root. Loading the page with the "#reversed" hash starts
+      // with the rows reversed: the hash is not part of the recorder's page key, so a reload with
+      // it is a revisit of the same page in a different order, which is how a locator that
+      // depends on position is caught by the revisit test.
+      const labState = {
+        bannerCount: 0,
+        identifierSeed: 412,
+        isOrderReversed: globalScope.location.hash === "#reversed"
+      };
+
+      /**
+       * Inserts a banner above the lab, shifting the position of everything after it.
+       *
+       * @remarks
+       * Owns a state change (the banner count) and a DOM change. One copy goes above the page
+       * and one inside the application root, so both the absolute paths and the positions inside
+       * the root move.
+       *
+       * @returns {void}
+       */
+      function addBanner() {
+        // Number the banner, so repeated insertions can be told apart on screen.
+        labState.bannerCount += 1;
+
+        const banner = document.createElement("div");
+
+        banner.className = "locator-lab__banner";
+        banner.textContent = `Announcement ${labState.bannerCount}`;
+
+        // Put one copy in front of everything and a second one in front of the lab cases.
+        document.body.prepend(banner);
+        document.getElementById("lab-app").prepend(banner.cloneNode(true));
+      }
+
+      /**
+       * Wraps the application root in one more container, deepening every path into it.
+       *
+       * @returns {void}
+       */
+      function addWrapper() {
+        const applicationRoot = document.getElementById("lab-app");
+        const wrapper = document.createElement("div");
+
+        // Swap the wrapper into the root's place first, then move the root inside it, so the
+        // root keeps its position on the page and only gains one ancestor.
+        applicationRoot.replaceWith(wrapper);
+        wrapper.append(applicationRoot);
+      }
+
+      /**
+       * Renders the lab into its application root.
+       *
+       * @remarks
+       * Owns the application root's content. Every call replaces all lab nodes with new ones, as
+       * a client-side framework does on a re-render, and builds the shadow tree again because a
+       * shadow root does not survive the replacement of its host.
+       *
+       * @returns {void}
+       */
+      function showLab() {
+        // Lets the follow button change its own caption, to observe the settle test by hand.
+        const onFollowClick = (event) => {
+          const clickedButton = event.currentTarget;
+
+          clickedButton.textContent = clickedButton.textContent === "Follow"
+            ? "Following"
+            : "Follow";
+        };
+
+        // Replace every lab node with a new one, which also drops the listeners of the old nodes.
+        const applicationRoot = document.getElementById("lab-app");
+
+        applicationRoot.innerHTML = getLabMarkup();
+
+        // Build the shadow tree of the shadow-DOM case inside its fresh host.
+        const shadowHost = document.getElementById("lab-shadow-host");
+        const shadowRoot = shadowHost.attachShadow({ mode: "open" });
+
+        shadowRoot.innerHTML = `<button type="button" data-g4-case="shadow-button">Shadow action</button>`;
+
+        // Bind the caption change to the fresh follow button.
+        const followButton = applicationRoot.querySelector("[data-g4-case='follow-toggle']");
+
+        followButton.addEventListener("click", onFollowClick);
+      }
+
+      /**
+       * Reverses the order of the repeated rows and renders the lab again.
+       *
+       * @returns {void}
+       */
+      function switchRowOrder() {
+        labState.isOrderReversed = !labState.isOrderReversed;
+
+        showLab();
+      }
+
+      /**
+       * Gives every generated id a new value and renders the lab again.
+       *
+       * @returns {void}
+       */
+      function updateGeneratedIdentifiers() {
+        labState.identifierSeed += IDENTIFIER_SEED_STEP;
+
+        showLab();
+      }
+
+      /**
+       * Returns the markup of the whole lab for the current render state.
+       *
+       * @remarks
+       * Compute-only. The generated ids are derived from the identifier seed, the way a UI
+       * framework derives them from a render counter, so regenerating the ids changes every one
+       * of them while the labels that point at them keep pointing at the right control.
+       *
+       * @returns {string} The lab markup.
+       */
+      function getLabMarkup() {
+        // Returns the markup of one invoice row; the invoice number tells the rows apart.
+        const getInvoiceRowMarkup = (invoice) => {
+          const caseKey = invoice.number.toLowerCase();
+
+          return `
+          <tr>
+            <td>${invoice.number}</td>
+            <td>${invoice.customer}</td>
+            <td>
+              <button type="button" data-g4-case="row-delete-${caseKey}">Delete</button>
+              <button type="button" title="Edit" data-g4-case="row-edit-${caseKey}">
+                <svg class="locator-lab__icon" aria-hidden="true" viewBox="0 0 16 16">
+                  <path data-g4-raw="row-edit-${caseKey}" d="M2 12 L10 4 L12 6 L4 14 L2 14 Z"></path>
+                </svg>
+              </button>
+            </td>
+          </tr>`;
+        };
+
+        // Returns the markup of one product item; the product name tells the items apart.
+        const getProductItemMarkup = (product) => {
+          const caseKey = product.toLowerCase();
+
+          return `
+            <li>
+              <span>${product}</span>
+              <button type="button" data-g4-case="list-add-${caseKey}">Add</button>
+            </li>`;
+        };
+
+        // Take the id seed and put the repeated rows in the order the current state asks for.
+        const seed = labState.identifierSeed;
+        const invoices = labState.isOrderReversed
+          ? INVOICES.slice().reverse()
+          : INVOICES;
+        const products = labState.isOrderReversed
+          ? PRODUCTS.slice().reverse()
+          : PRODUCTS;
+        const invoiceMarkup = invoices.map(getInvoiceRowMarkup).join("");
+        const productMarkup = products.map(getProductItemMarkup).join("");
+
+        // The lab cases carry no data-test-id on purpose; see the comment above the root element.
+        return `
+          <section class="locator-lab__section" aria-label="Invoices">
+            <h2>Invoices</h2>
+            <table>
+              <tbody>${invoiceMarkup}</tbody>
+            </table>
+          </section>
+
+          <section class="locator-lab__section">
+            <h2>Products</h2>
+            <ul>${productMarkup}</ul>
+          </section>
+
+          <section class="locator-lab__section">
+            <h2>Toolbar</h2>
+            <div class="locator-lab__row">
+              <button type="button" data-g4-case="icon-close" aria-label="Close panel">
+                <svg class="locator-lab__icon" aria-hidden="true" viewBox="0 0 16 16">
+                  <path data-g4-raw="icon-close" d="M3 3 L13 13 M13 3 L3 13" stroke="currentColor"></path>
+                </svg>
+              </button>
+              <button type="button" id=":r${seed}:" data-g4-case="subscribe-generated-id">Subscribe</button>
+              <button type="button" data-g4-case="quotes-button">Save "draft" of John's copy</button>
+              <button type="button" data-g4-case="follow-toggle">Follow</button>
+              <lab-cart-button data-g4-case="custom-element">Cart</lab-cart-button>
+              <svg class="locator-lab__icon"
+                   data-g4-case="standalone-icon"
+                   data-g4-expect="weak"
+                   viewBox="0 0 16 16">
+                <circle data-g4-raw="standalone-icon"
+                        cx="8"
+                        cy="8"
+                        r="6"></circle>
+              </svg>
+            </div>
+          </section>
+
+          <section class="locator-lab__section">
+            <h2>Sign in</h2>
+            <form>
+              <div class="locator-lab__row">
+                <label for="ember${seed}">Email address</label>
+                <input type="email" id="ember${seed}" data-g4-case="email-label-for">
+                <input type="search"
+                       id="mat-input-${seed}"
+                       data-g4-case="search-generated-id"
+                       placeholder="Search products">
+              </div>
+              <div class="locator-lab__row">
+                <label for="lab-country">Country</label>
+                <select id="lab-country" data-g4-case="select-label-for">
+                  <option>Israel</option>
+                  <option>Germany</option>
+                </select>
+                <label><input type="checkbox" data-g4-case="remember-wrapping-label"> Remember me</label>
+              </div>
+              <div class="locator-lab__row">
+                <label>
+                  <input type="radio"
+                         data-g4-case="radio-plan-basic"
+                         name="plan"
+                         value="basic">
+                  Basic
+                </label>
+                <label>
+                  <input type="radio"
+                         data-g4-case="radio-plan-pro"
+                         name="plan"
+                         value="pro">
+                  Pro
+                </label>
+                <input type="submit" data-g4-case="submit-value" value="Sign in">
+              </div>
+            </form>
+          </section>
+
+          <section class="locator-lab__section">
+            <h2>Navigation</h2>
+            <div class="locator-lab__row">
+              <a data-g4-case="link-pricing" href="#pricing">Pricing</a>
+              <a style="text-transform: uppercase" data-g4-case="link-uppercase" href="#docs">Docs</a>
+              <a data-g4-case="link-long-text" href="#terms">Read the complete terms and conditions of the service, including the data processing addendum and the acceptable use policy</a>
+            </div>
+          </section>
+
+          <section class="locator-lab__section">
+            <h3>Account</h3>
+            <div role="tablist">
+              <div data-g4-case="tab-account-settings" role="tab" tabindex="0">Settings</div>
+              <div data-g4-case="tab-account-security" role="tab" tabindex="0">Security</div>
+            </div>
+          </section>
+
+          <section class="locator-lab__section">
+            <h3>Billing</h3>
+            <div role="tablist">
+              <div data-g4-case="tab-billing-settings" role="tab" tabindex="0">Settings</div>
+            </div>
+          </section>
+
+          <section class="locator-lab__section">
+            <h2>Profile</h2>
+            <button type="button" data-g4-case="page-save">Save</button>
+            <div aria-label="Edit user" role="dialog">
+              <button type="button" data-g4-case="dialog-save">Save</button>
+            </div>
+          </section>
+
+          <section class="locator-lab__section">
+            <h2>Unlabelled</h2>
+            <div class="locator-lab__row" data-g4-case="promo-test-hook" data-test-id="promo-card">
+              <span>Summer sale</span>
+            </div>
+            <div><div><div><span data-g4-case="plain-nested" data-g4-expect="weak"></span></div></div></div>
+            <div id="lab-shadow-host" data-g4-case="shadow-host"></div>
+          </section>`;
+      }
+
+      // Render the lab, then bind each page change to its button.
+      showLab();
+
+      document.getElementById("lab-insert-banner").addEventListener("click", addBanner);
+      document.getElementById("lab-wrap-content").addEventListener("click", addWrapper);
+      document.getElementById("lab-shuffle-rows").addEventListener("click", switchRowOrder);
+      document.getElementById("lab-regenerate-ids").addEventListener("click", updateGeneratedIdentifiers);
+      document.getElementById("lab-render-again").addEventListener("click", showLab);
+
+      // Expose the page changes so the automated lab test applies exactly what the buttons do.
+      globalScope.g4LocatorLab = {
+        addBanner,
+        addWrapper,
+        showLab,
+        switchRowOrder,
+        updateGeneratedIdentifiers
+      };
+    })(globalThis);
+  </script>
+</body>
+
+</html>

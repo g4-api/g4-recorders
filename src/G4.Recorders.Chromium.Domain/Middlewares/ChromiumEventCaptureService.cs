@@ -21,8 +21,29 @@ namespace G4.Recorders.Chromium.Domain.Middlewares
     /// <param name="hubContext">Hub context used to broadcast events to connected consumers.</param>
     public class ChromiumEventCaptureService(IHubContext<ChromiumRecorderHub> hubContext) : IChromiumEventCaptureService
     {
+        #region *** Fields       ***
         // Hub context used to fan recorder events out to every connected consumer.
         private readonly IHubContext<ChromiumRecorderHub> _hubContext = hubContext;
+        #endregion
+
+        #region *** Methods      ***
+        /// <inheritdoc />
+        public Task BroadcastLocatorAmendmentAsync(ChromiumLocatorAmendmentModel amendment)
+        {
+            // Drop an amendment a consumer cannot match to an earlier locator so no unusable correction is relayed.
+            var isUnidentified = amendment == null || string.IsNullOrWhiteSpace(amendment.LocatorId);
+
+            if (isUnidentified)
+            {
+                return Task.CompletedTask;
+            }
+
+            // Fan the correction out under its own message name with the { Value = amendment } envelope, so
+            // consumers that only listen to "ReceiveRecordingEvent" are unaffected by this newer message.
+            return _hubContext.Clients.All.SendAsync(
+                method: ChromiumRecorderHub.ReceiveLocatorAmendmentClientMethod,
+                arg1: new { Value = amendment });
+        }
 
         /// <inheritdoc />
         public Task BroadcastRecordingEventAsync(ChromiumEventModel recordingEvent)
@@ -34,5 +55,6 @@ namespace G4.Recorders.Chromium.Domain.Middlewares
                 method: "ReceiveRecordingEvent",
                 arg1: new { Value = recordingEvent });
         }
+        #endregion
     }
 }

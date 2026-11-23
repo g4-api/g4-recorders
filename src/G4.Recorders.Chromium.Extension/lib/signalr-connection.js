@@ -26,6 +26,7 @@
     const {
         HUB_METHOD_NAMES,
         SERVER_CLOSE_BROWSER_NAME,
+        SERVER_LOCATOR_TEST_REQUEST_NAME,
         SERVER_PEEK_REQUEST_NAME
     } = namespace.constants;
 
@@ -54,6 +55,8 @@
      * @param {() => void} options.onReconnecting Called when the client starts reconnecting.
      * @param {() => void} options.onDisconnected Called when the socket closes for good.
      * @param {() => void} [options.onCloseBrowser] Called when the hub asks the extension to close the browser.
+     * @param {(request: object) => Promise<void>} [options.onLocatorTestRequested] Called for a
+     *   correlated on-demand locator test request.
      * @param {(request: object) => Promise<void>} options.onPeekRequested Called for a correlated DOM peek request.
      * @returns {object} The connection handle.
      */
@@ -65,6 +68,7 @@
             onReconnecting,
             onDisconnected,
             onCloseBrowser,
+            onLocatorTestRequested,
             onPeekRequested
         } = options;
 
@@ -139,6 +143,12 @@
             hubConnection.on(SERVER_PEEK_REQUEST_NAME, onPeekRequested);
         }
 
+        // Route on-demand locator tests the same way, so a client can test a locator against the
+        // live browser while the recording is running.
+        if (onLocatorTestRequested) {
+            hubConnection.on(SERVER_LOCATOR_TEST_REQUEST_NAME, onLocatorTestRequested);
+        }
+
         /**
          * Returns the current human-readable connection state.
          *
@@ -159,6 +169,54 @@
          */
         function registerRecorder() {
             return hubConnection.invoke(HUB_METHOD_NAMES.registerRecorder);
+        }
+
+        /**
+         * Sends a locator amendment to the hub for re-broadcast to consumers.
+         *
+         * @remarks
+         * Owns a network side effect. An amendment corrects the locators of an event that was
+         * already delivered, after a hot test changed their verdicts. It is an improvement, not a
+         * required part of the recording, so a failure (for example a recorder host that predates
+         * amendments) is logged and never thrown.
+         *
+         * @param {object} amendment The amendment ({ locatorId, locator, locators, locatorStrength,
+         *   reason, timestamp }).
+         * @returns {Promise<void>} Resolves once the send attempt has completed.
+         */
+        async function sendLocatorAmendment(amendment) {
+            // An amendment produced while disconnected has no session left to correct.
+            if (connectionState !== CONNECTION_STATES.connected) {
+                return;
+            }
+
+            // Invoke inside a guard, so a hub that rejects the amendment cannot fail the recording.
+            try {
+                await hubConnection.invoke(HUB_METHOD_NAMES.sendLocatorAmendment, amendment);
+            } catch (error) {
+                // Keep the reason visible for diagnosis; the recorded event itself is unaffected.
+                console.warn("[g4-recorder] hub did not accept the locator amendment:", error);
+            }
+        }
+
+        /**
+         * Returns a correlated on-demand locator test result to the server.
+         *
+         * @remarks
+         * Owns the response invocation while connected. A response produced during transport
+         * teardown is discarded because the server fails the correlations of a lost connection.
+         *
+         * @param {object} response The response ({ requestId, error, count, matches }).
+         * @returns {Promise<void>} Resolves once the server accepts or ignores the correlation.
+         */
+        function sendLocatorTestResponse(response) {
+            // Discard a response produced during teardown; the server already failed its correlation.
+            if (connectionState !== CONNECTION_STATES.connected) {
+                return Promise.resolve();
+            }
+
+            // Complete the correlation the server is waiting on.
+            return hubConnection.invoke(HUB_METHOD_NAMES.sendLocatorTestResponse, response);
         }
 
         /**
@@ -251,6 +309,8 @@
 
         return {
             getState,
+            sendLocatorAmendment,
+            sendLocatorTestResponse,
             sendPeekResponse,
             sendRecordingEvent,
             start,

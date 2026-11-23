@@ -9,13 +9,23 @@
  *
  * @remarks
  * This file is the last entry in the manifest content-script list, so the constants,
- * settings, contract, locator, DOM context, mapper, and catalog modules are already attached to the
- * shared g4Recorder namespace by the time this code runs.
+ * settings, contract, locator, accessibility, candidate, DOM context, mapper, monitor, and catalog
+ * modules are already attached to the shared g4Recorder namespace by the time this code runs.
  */
 (function initializeContentScriptModule(globalScope) {
     // Read the shared modules this script composes. All are loaded earlier in the list.
     const namespace = globalScope.g4Recorder;
-    const { constants, contract, locator, mapper, catalog, settings } = namespace;
+    const {
+        accessibility,
+        catalog,
+        constants,
+        contract,
+        locator,
+        locatorCandidates,
+        locatorMonitor,
+        mapper,
+        settings
+    } = namespace;
     const { MESSAGE_CHANNELS } = constants;
 
     // The content script runs in an isolated world per frame, so a module-level settings
@@ -64,6 +74,51 @@
         "MoveMouseCursor",
         "SendKeys"
     ]);
+
+    // The events recorded against the control the user acted on rather than the innermost node
+    // the pointer landed on. Typing already targets its field and a scroll targets what scrolls,
+    // so only pointer actions are retargeted.
+    const RETARGET_EVENT_NAMES = new Set([
+        "InvokeClick",
+        "InvokeContextClick",
+        "InvokeDoubleClick",
+        "MoveMouseCursor"
+    ]);
+
+    // How many matched elements an on-demand locator test describes in full. The total count is
+    // always reported; the chains are capped so a broad locator cannot produce a huge response.
+    const MAXIMUM_LOCATOR_TEST_MATCHES = 5;
+
+    // How long the locator of this frame's own <iframe> element is reused. It is sent with every
+    // event of the frame, and recomputing it each time would repeat the same work on the parent.
+    const FRAME_LOCATOR_LIFETIME_MILLISECONDS = 3000;
+
+    // The cached frame locator and the time it was resolved. Module-level because the cache
+    // spans every event of this frame; each frame runs its own isolated copy of this script.
+    let frameLocatorCache = null;
+    let frameLocatorCachedAtMilliseconds = 0;
+
+    /**
+     * Resolves the element an event is recorded against.
+     *
+     * @remarks
+     * Compute-only over the module settings cache. Pointer actions are attributed to the nearest
+     * actionable ancestor of the raw target when retargeting is enabled, because that control is
+     * what the user acted on and what carries a stable, user-facing identity.
+     *
+     * @param {Element} targetElement The raw event target.
+     * @param {string} eventName The contract event name, for example "InvokeClick".
+     * @returns {Element} The element to record.
+     */
+    function getActionElement(targetElement, eventName) {
+        // Retarget only pointer actions, and only while the user keeps the option switched on.
+        const isRetargetable = activeSettings.isLocatorRetargetEnabled
+            && RETARGET_EVENT_NAMES.has(eventName);
+
+        return isRetargetable
+            ? accessibility.resolveActionableElement(targetElement)
+            : targetElement;
+    }
 
     /**
      * Resolves the deepest real target of a DOM event.
@@ -121,7 +176,16 @@
             return { isSubFrame, frameUrl, frameLocator: null };
         }
 
-        // Resolve the owning <iframe> element's locator when the parent is same-origin.
+        // Reuse a recent locator of the owning <iframe>, since every event of this frame carries it.
+        const cacheAgeMilliseconds = Date.now() - frameLocatorCachedAtMilliseconds;
+        const isCacheFresh = frameLocatorCache !== null
+            && cacheAgeMilliseconds < FRAME_LOCATOR_LIFETIME_MILLISECONDS;
+
+        if (isCacheFresh) {
+            return { isSubFrame, frameUrl, frameLocator: frameLocatorCache };
+        }
+
+        // Resolve the owning <iframe> element's locators when the parent is same-origin.
         // Cross-origin access throws, so treat any failure as "no locator available".
         let frameLocator = null;
 
@@ -129,14 +193,24 @@
             const frameElement = globalScope.window.frameElement;
 
             if (frameElement) {
+                const frameResult = locatorCandidates.getLocatorCandidates({
+                    element: frameElement,
+                    settings: getLocatorSettings()
+                });
+
                 frameLocator = {
-                    xpath: locator.getAbsoluteXpath(frameElement),
-                    cssSelector: locator.getCssSelector(frameElement)
+                    xpath: frameResult.locator || locator.getAbsoluteXpath(frameElement),
+                    cssSelector: locator.getCssSelector(frameElement),
+                    locators: frameResult.locators
                 };
             }
         } catch (error) {
             frameLocator = null;
         }
+
+        // Remember the result, so the following events of this frame do not repeat the work.
+        frameLocatorCache = frameLocator;
+        frameLocatorCachedAtMilliseconds = Date.now();
 
         return { isSubFrame, frameUrl, frameLocator };
     }
@@ -171,6 +245,68 @@
     }
 
     /**
+     * Builds the hot-test record of a recording, or null when it has nothing to test.
+     *
+     * @remarks
+     * Compute-only. The record is what the background worker keeps to re-test the element on a
+     * later load of this page: the locators, the fingerprint that recognises the element again,
+     * and this document's identity. An element inside a shadow root is left out, because its
+     * published locators describe the host, not the element itself.
+     *
+     * @param {object} recording The built recording ({ element, recordingEvent, ... }).
+     * @returns {object|null} The record, or null when hot testing does not apply.
+     */
+    function getLocatorRecord(recording) {
+        // Hot testing can be switched off, and only element actions have locators worth testing.
+        const isHotTestingEnabled = Boolean(activeSettings.isLocatorHotTestingEnabled);
+        const isElementEvent = DOM_CONTEXT_EVENT_NAMES.has(recording.recordingEvent.event);
+        const isRecordable = isHotTestingEnabled && isElementEvent && Boolean(recording.element);
+
+        if (!isRecordable) {
+            return null;
+        }
+
+        // Read the locators the mapper published on the trigger node.
+        const triggerNode = recording.recordingEvent.chain.path[0];
+        const properties = triggerNode
+            ? triggerNode.properties
+            : null;
+        const isTestable = Boolean(properties)
+            && Array.isArray(properties.locators)
+            && !properties.shadowPath;
+
+        if (!isTestable) {
+            return null;
+        }
+
+        // Describe the element for a later load: its locators, how to recognise it, and where.
+        return {
+            documentId: locatorMonitor.getDocumentId(),
+            fingerprint: locatorCandidates.getElementFingerprint(recording.element),
+            locatorId: properties.locatorId,
+            locators: properties.locators,
+            pageKey: locatorMonitor.getPageKey()
+        };
+    }
+
+    /**
+     * Resolves the locator settings the candidate engine runs with.
+     *
+     * @remarks
+     * Compute-only over the module settings cache, which is the only source of the user's
+     * locator preferences in this isolated world.
+     *
+     * @returns {object} The settings ({ maximumTextLength, preference, testHookAttributes }).
+     */
+    function getLocatorSettings() {
+        return {
+            maximumTextLength: activeSettings.locatorMaximumTextLength,
+            preference: activeSettings.locatorPreference,
+            testHookAttributes: activeSettings.locatorTestHookAttributes
+        };
+    }
+
+    /**
      * Builds a complete recording event from a DOM event.
      *
      * @remarks
@@ -190,11 +326,18 @@
         }
 
         // Resolve the element the interaction targeted; without one there is no chain.
-        const targetElement = getEventTarget(domEvent);
+        const rawTargetElement = getEventTarget(domEvent);
 
-        if (!targetElement) {
+        if (!rawTargetElement) {
             return null;
         }
+
+        // Attribute a pointer action to the control the user acted on, keeping the raw target
+        // only when it differs, so the chain can still report the exact node the event landed on.
+        const targetElement = getActionElement(rawTargetElement, descriptor.event);
+        const originalElement = targetElement === rawTargetElement
+            ? null
+            : rawTargetElement;
 
         // Resolve the trigger point and convert it to the contract point shape, when the
         // event family carries coordinates.
@@ -203,12 +346,15 @@
             ? contract.newPoint(pointInput)
             : null;
 
-        // Build the ancestor chain rooted at the target element, with its DOM context when enabled.
+        // Build the ancestor chain rooted at the target element, with its verified locators and,
+        // when enabled, its DOM context.
         const chain = mapper.newChainFromElement({
             element: targetElement,
             trigger: descriptor.event,
             point,
-            domContextOptions: getDomContextOptions(descriptor.event)
+            domContextOptions: getDomContextOptions(descriptor.event),
+            locatorSettings: getLocatorSettings(),
+            originalElement
         });
 
         // Assemble the top-level event, stamping the page host and capture time.
@@ -227,6 +373,7 @@
         // frame and must not trigger a SwitchFrame. Default to a trigger unless the descriptor
         // opts out, so any future event keeps switching unless it declares otherwise.
         return {
+            element: targetElement,
             recordingEvent,
             isFrameSwitchTrigger: descriptor.isFrameSwitchTrigger !== false
         };
@@ -302,22 +449,38 @@
      * Owns the messaging boundary for every recorded event (clicks, scroll, submit, and the
      * field-session SendKeys). Sends this frame's context and the frame-switch hint so the worker
      * emits a SwitchFrame only when a genuine in-frame gesture moved to a different frame.
-     * Ignores "no receiver" rejections that occur while the worker is briefly asleep.
+     * Ignores "no receiver" rejections that occur while the worker is briefly asleep. An element
+     * action also hands its hot-test record to the worker and starts the settle test.
      *
-     * @param {object} recording The event plus its hint ({ recordingEvent, isFrameSwitchTrigger }).
+     * @param {object} recording The event plus its context ({ element, recordingEvent,
+     *   isFrameSwitchTrigger }).
      * @returns {void}
      */
     function sendRecordingMessage(recording) {
+        // Resolve the hot-test record first, so it travels with the event it belongs to.
+        const locatorRecord = getLocatorRecord(recording);
         const recordingMessage = {
             channel: MESSAGE_CHANNELS.recordingEvent,
             recordingEvent: recording.recordingEvent,
             frameContext: getFrameContext(),
-            isFrameSwitchTrigger: recording.isFrameSwitchTrigger
+            isFrameSwitchTrigger: recording.isFrameSwitchTrigger,
+            locatorRecord
         };
 
         chrome.runtime.sendMessage(recordingMessage).catch(() => {
             // The worker will respawn on the next event; nothing to do here.
         });
+
+        // Re-test the locators once the page has reacted to the action that was just recorded.
+        if (locatorRecord) {
+            locatorMonitor.watchLocator({
+                element: recording.element,
+                locatorId: locatorRecord.locatorId,
+                locators: locatorRecord.locators
+            }).catch(() => {
+                // Hot testing is an improvement; a failed test leaves the recorded locators as they are.
+            });
+        }
     }
 
     /**
@@ -378,12 +541,14 @@
             isRedactPasswordsEnabled: activeSettings.isRedactPasswordsEnabled
         });
 
-        // Build the ancestor chain rooted at the typed element, with its DOM context when enabled.
+        // Build the ancestor chain rooted at the typed element, with its verified locators and,
+        // when enabled, its DOM context.
         const chain = mapper.newChainFromElement({
             element,
             trigger: descriptor.event,
             point: null,
-            domContextOptions: getDomContextOptions(descriptor.event)
+            domContextOptions: getDomContextOptions(descriptor.event),
+            locatorSettings: getLocatorSettings()
         });
 
         // Stamp the event with the last input time so it orders at typing time, not flush time.
@@ -397,6 +562,7 @@
         });
 
         return {
+            element,
             recordingEvent,
             isFrameSwitchTrigger: descriptor.isFrameSwitchTrigger !== false
         };
@@ -549,12 +715,14 @@
         });
         const point = contract.newPoint({ xPosition: clientX, yPosition: clientY });
 
-        // Build the ancestor chain rooted at the rested element, with its DOM context when enabled.
+        // Build the ancestor chain rooted at the rested element, with its verified locators and,
+        // when enabled, its DOM context.
         const chain = mapper.newChainFromElement({
             element,
             trigger: descriptor.event,
             point,
-            domContextOptions: getDomContextOptions(descriptor.event)
+            domContextOptions: getDomContextOptions(descriptor.event),
+            locatorSettings: getLocatorSettings()
         });
 
         const recordingEvent = contract.newRecordingEvent({
@@ -567,6 +735,7 @@
         });
 
         return {
+            element,
             recordingEvent,
             isFrameSwitchTrigger: descriptor.isFrameSwitchTrigger !== false
         };
@@ -586,8 +755,11 @@
         // The timer has fired; mark it inactive and do not re-arm (one event per rest).
         hoverDwellTimerId = null;
 
-        // Capture and clear the resting target so a later move starts a fresh dwell.
-        const element = hoverElement;
+        // Capture and clear the resting target so a later move starts a fresh dwell. The rest is
+        // attributed to the control under the cursor, like a click on it would be.
+        const element = hoverElement
+            ? getActionElement(hoverElement, "MoveMouseCursor")
+            : null;
         const clientX = hoverClientX;
         const clientY = hoverClientY;
         hoverElement = null;
@@ -671,6 +843,55 @@
     }
 
     /**
+     * Creates a content-frame response for one on-demand locator test.
+     *
+     * @remarks
+     * Compute-only over the current document. The locator is evaluated with the same evaluator
+     * the recorder verifies its own candidates with, so a client sees exactly what a recorded
+     * locator would match right now. The total count is always returned; only the first few
+     * matches are described as chains.
+     *
+     * @param {object} request The request carrying the strategy (using) and the locator (value).
+     * @returns {object} The frame result ({ chains, count, frameContext }).
+     */
+    function newLocatorTestResponse(request) {
+        const response = {
+            chains: [],
+            count: 0,
+            frameContext: getFrameContext()
+        };
+
+        // Reject malformed runtime messages without reading properties through implicit coercion.
+        const isRequestValid = request !== null
+            && typeof request === "object"
+            && typeof request.using === "string"
+            && typeof request.value === "string";
+
+        if (!isRequestValid) {
+            return response;
+        }
+
+        // Evaluate the locator in this frame's document and describe the first matches.
+        const elements = locator.findElements({
+            root: document,
+            using: request.using,
+            value: request.value
+        });
+
+        response.count = elements.length;
+        response.chains = elements
+            .slice(0, MAXIMUM_LOCATOR_TEST_MATCHES)
+            .map((element) => mapper.newChainFromElement({
+                element,
+                point: null,
+                trigger: "LocatorTest",
+                locatorSettings: getLocatorSettings()
+            }));
+
+        return response;
+    }
+
+    /**
      * Creates a content-frame response for one normalized server peek request.
      *
      * @remarks
@@ -737,7 +958,12 @@
         }
 
         // Map the resolved element through the established recorder contract so REST and events share one shape.
-        response.chain = mapper.newChainFromElement({ element, point, trigger });
+        response.chain = mapper.newChainFromElement({
+            element,
+            point,
+            trigger,
+            locatorSettings: getLocatorSettings()
+        });
         response.found = true;
 
         return response;
@@ -753,9 +979,18 @@
      */
     function onRuntimeMessage(message, sender, sendResponse) {
         // Ignore unrelated extension messages so existing popup and settings traffic remains isolated.
-        const isPeekMessage = message !== null &&
-            typeof message === "object" &&
-            message.channel === MESSAGE_CHANNELS.peekRequest;
+        const isMessageObject = message !== null && typeof message === "object";
+        const isLocatorTestMessage = isMessageObject
+            && message.channel === MESSAGE_CHANNELS.locatorTest;
+        const isPeekMessage = isMessageObject
+            && message.channel === MESSAGE_CHANNELS.peekRequest;
+
+        // Evaluate an on-demand locator test against this frame without recording anything.
+        if (isLocatorTestMessage) {
+            sendResponse(newLocatorTestResponse(message.request));
+
+            return false;
+        }
 
         if (!isPeekMessage) {
             return false;
@@ -951,6 +1186,13 @@
 
         // Begin capturing interactions in this frame.
         startListeners();
+
+        // Re-test the locators an earlier load of this page recorded, now that it loaded again.
+        if (activeSettings.isLocatorHotTestingEnabled) {
+            locatorMonitor.startRevisitTest().catch(() => {
+                // Hot testing is an improvement; a failed test leaves the recorded locators as they are.
+            });
+        }
     }
 
     // Start the content script for this frame.

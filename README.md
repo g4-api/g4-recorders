@@ -286,12 +286,14 @@ Chromium Recorder listens on **`http://localhost:9956`**. Unlike UIA Recorder, i
 * `SendPeekFocused()`
 * `SendPeekCurrent()`
 * `SendRecordingEvent(event)` — used by the **extension** (producer); consumers do not call this
+* `SendLocatorAmendment(amendment)` — used by the **extension** to correct a locator it already sent; consumers do not call this
 
 **Server → Client Events:**
 
 * `ReceiveHeartbeat` — heartbeat confirmation
 * `ReceivePeek` — DOM ancestor chain result
 * `ReceiveRecordingEvent` — browser interactions with a DOM chain
+* `ReceiveLocatorAmendment` — a correction to an earlier locator, in a `{ "value": { ... } }` envelope (see [Peek and Observe](docs/events/peek-and-observe.md#locator-amendments))
 * `CloseBrowser` — sent to the **extension** to close the browser during a graceful stop
 
 ### Chromium Peek API
@@ -313,6 +315,17 @@ curl "http://localhost:9956/api/v4/g4/recorders/chromium/recorder/element"
 Supplying either coordinate selects coordinate mode and defaults the omitted axis to zero. Coordinates take
 precedence over `focused=true`; focus is used only when both coordinates are absent. With no coordinates and
 `focused=false`, the extension resolves its latest current pointer position.
+
+The same host can test a locator against the live page. The answer holds the match count across all frames and
+the first matched elements. `using` is one of `Xpath` (the default), `CssSelector`, `LinkText`, `PartialLinkText`
+and `TagName`. See [Peek and Observe](docs/events/peek-and-observe.md#test-a-locator).
+
+```bash
+# Test a locator against the live browser
+curl -X POST "http://localhost:9956/api/v4/g4/recorders/chromium/recorder/locator" \
+    -H "Content-Type: application/json" \
+    -d "{ \"using\": \"Xpath\", \"value\": \"//button[normalize-space()='Save']\" }"
+```
 
 ### Launching and Stopping a Browser
 

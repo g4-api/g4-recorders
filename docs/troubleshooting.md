@@ -123,14 +123,14 @@ These messages are explained in [install-and-operate/troubleshooting.md](install
 - **Cause:** The recorder could not store the id of a peek request. The code treats this as an internal fault.
 - **Check:** Repeat the peek once.
 - **Fix:** If it repeats, restart the Chromium recorder and report the problem.
-- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:105`
+- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:147`
 
 ### GetScreenshot is not implemented for the Chromium recorder surface yet
 
 - **Cause:** The Chromium recorder has no screenshot support. The same type of message appears for `MovePointer`, `ResolveGroundedElementAsync` and `SetWindowFocus`.
 - **Check:** Look at which operation the message names.
 - **Fix:** Use the UIA recorder for these operations, or skip them. The REST routes map this error to status 501. See [Peek and observe](events/peek-and-observe.md).
-- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:152` (also `:160`, `:202`, `:210`)
+- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:196` (also `:204`, `:257`, `:265`)
 
 ## SAP recorder
 

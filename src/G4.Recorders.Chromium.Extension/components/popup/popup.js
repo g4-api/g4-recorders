@@ -77,6 +77,87 @@
     }
 
     /**
+     * Describes the evidence behind an event's locator for the strength tooltip.
+     *
+     * @remarks
+     * Compute-only. Summarises the verdicts hot testing gave the recorded locators, so the user
+     * can tell a locator that was only written from one that was tested again later.
+     *
+     * @param {object} recordingEvent The event in contract shape.
+     * @returns {string} The tooltip text.
+     */
+    function getLocatorEvidenceText(recordingEvent) {
+        // Read the recorded locators; an event without an element simply has none.
+        const properties = getTriggerProperties(recordingEvent);
+        const isLocatorListPresent = Boolean(properties) && Array.isArray(properties.locators);
+        const locators = isLocatorListPresent
+            ? properties.locators
+            : [];
+
+        // Counts the locators that carry one verdict.
+        const getVerdictCount = (verdict) => {
+            const verdictLocators = locators.filter((candidate) => candidate.verdict === verdict);
+
+            return verdictLocators.length;
+        };
+
+        // Summarise the three verdicts hot testing can give, from the strongest evidence down.
+        const provenCount = getVerdictCount("Proven");
+        const stableCount = getVerdictCount("Stable");
+        const brokenCount = getVerdictCount("Broken");
+
+        return `${locators.length} locators: ${provenCount} proven on revisit, `
+            + `${stableCount} stable after the action, ${brokenCount} broken.`;
+    }
+
+    /**
+     * Resolves the strength label of an event's locator.
+     *
+     * @remarks
+     * Compute-only. Only the three labels the recorder emits are accepted, because the label
+     * becomes part of a CSS class name.
+     *
+     * @param {object} recordingEvent The event in contract shape.
+     * @returns {string} "Strong", "Fair", "Weak", or an empty string when the event has none.
+     */
+    function getLocatorStrength(recordingEvent) {
+        // Read the label the recorder stored on the trigger node, when there is one.
+        const properties = getTriggerProperties(recordingEvent);
+        const locatorStrength = properties
+            ? properties.locatorStrength
+            : "";
+
+        // Accept a known label only, so no other value can ever reach the class name.
+        const isKnownStrength = ["Strong", "Fair", "Weak"].includes(locatorStrength);
+
+        return isKnownStrength
+            ? locatorStrength
+            : "";
+    }
+
+    /**
+     * Returns the properties of an event's trigger node, the first node of its chain.
+     *
+     * @param {object} recordingEvent The event in contract shape.
+     * @returns {object|null} The properties, or null for an event without an element.
+     */
+    function getTriggerProperties(recordingEvent) {
+        // Walk down to the trigger node, tolerating an event without a chain or a path.
+        const chain = recordingEvent
+            ? recordingEvent.chain
+            : null;
+        const isPathPresent = Boolean(chain) && Array.isArray(chain.path);
+        const triggerNode = isPathPresent
+            ? chain.path[0]
+            : null;
+        const isPropertiesPresent = Boolean(triggerNode) && Boolean(triggerNode.properties);
+
+        return isPropertiesPresent
+            ? triggerNode.properties
+            : null;
+    }
+
+    /**
      * Builds a list row element for a single recording event.
      *
      * @remarks
@@ -114,9 +195,31 @@
         const locatorElement = document.createElement("span");
         locatorElement.className = "recorder-popup__event-locator";
         locatorElement.textContent = locatorText;
+        locatorElement.title = locatorText;
 
         // Assemble the row in reading order.
-        rowElement.append(typeElement, nameElement, timeElement, locatorElement);
+        rowElement.append(typeElement, nameElement, timeElement);
+
+        // An element action shows how strong its locator is, in front of the locator itself.
+        const locatorStrength = getLocatorStrength(recordingEvent);
+
+        if (locatorStrength) {
+            // Build the badge; its modifier class colours it and its tooltip explains the evidence.
+            const strengthModifier = locatorStrength.toLowerCase();
+            const strengthElement = document.createElement("span");
+            strengthElement.className = "recorder-popup__event-strength "
+                + `recorder-popup__event-strength--${strengthModifier}`;
+            strengthElement.setAttribute("data-test-id", "captured-event-locator-strength");
+            strengthElement.textContent = locatorStrength;
+            strengthElement.title = getLocatorEvidenceText(recordingEvent);
+
+            // Narrow the locator cell so the badge sits in the first column in front of it.
+            locatorElement.classList.add("recorder-popup__event-locator--with-strength");
+            rowElement.append(strengthElement);
+        }
+
+        // The locator always closes the row, after the badge when there is one.
+        rowElement.append(locatorElement);
 
         return rowElement;
     }
