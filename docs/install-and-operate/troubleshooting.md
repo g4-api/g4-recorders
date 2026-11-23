@@ -222,6 +222,13 @@ Recorder messages are written to the console window of the recorder. Messages fr
 - **Fix:** Connect a device with USB debugging on, or start an emulator, then start the recording again.
 - **Source:** `src/G4.Recorders.Android.Domain/AndroidRecorderLauncher.cs`, `ResolveSerialAsync`
 
+### The UIA driver server stops answering after an Android emulator starts
+
+- **Cause:** The emulator took ports `5554` and `5555`, its defaults. The G4 sandbox uses `5554` for the UIA node and `5555` for the UIA driver server.
+- **Check:** Run `adb devices`. An emulator listed as `emulator-5554` uses the two UIA ports.
+- **Fix:** Close the emulator and start it on another port: `emulator -avd <name of your virtual device> -port 5580`. adb then lists it as `emulator-5580`.
+- **Source:** the sandbox's `add-uia-node.cmd` and `start-uia-driver-server.cmd`
+
 ### More than one Android device is connected; set appium:udid to choose one
 
 - **Cause:** Several devices are connected and the request names none. The same check reports `Device 'SERIAL' is not connected` when `appium:udid` names a device adb does not list.
