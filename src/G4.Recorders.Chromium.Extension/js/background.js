@@ -104,6 +104,24 @@ const WINDOW_HANDLES_KEY = "g4Recorder/windowHandles";
 // launched it.
 const INJECTED_HUB_KEY = "g4Recorder/injectedHubUrl";
 
+// Storage.session key holding the hot-test records: for every recorded page, the locators and
+// the element fingerprint of each recorded element action. A content script fetches the records
+// of its page when the page loads again and re-tests them on the fresh document (the revisit
+// test). Session storage keeps them across service-worker restarts and drops them with the browser.
+const LOCATOR_RECORDS_KEY = "g4Recorder/locatorRecords";
+
+// Bounds of the hot-test records, so a long recording cannot grow session storage without limit.
+// The oldest page and the oldest record of a page are dropped first.
+const MAXIMUM_LOCATOR_RECORD_PAGES = 50;
+const MAXIMUM_LOCATOR_RECORDS_PER_PAGE = 40;
+
+// How many matches of an on-demand locator test are returned to the server in full.
+const MAXIMUM_LOCATOR_TEST_MATCHES = 5;
+
+// Serialises every read-modify-write of the hot-test records. Recording events and verdicts
+// arrive concurrently, and without one queue two updates would overwrite each other.
+let locatorRecordsQueue = Promise.resolve();
+
 // In-memory copy of the window-handle list (the source of truth during a worker lifetime)
 // and a load-once promise. Reads are synchronous against this array to avoid storage races
 // between the close (onRemoved) and re-activation (onActivated) handlers.
@@ -123,6 +141,54 @@ const NAVIGATION_EVENT_NAMES = Object.freeze({
     undoNavigation: "UndoNavigation",
     updatePage: "UpdatePage"
 });
+
+/**
+ * Stores the hot-test record of a recorded element action.
+ *
+ * @remarks
+ * Owns a storage side effect, serialised through the records queue. The record is filed under
+ * its page key so a later load of that page can fetch and re-test it. Both bounds are enforced
+ * here, oldest first, so the store never grows past its limits.
+ *
+ * @param {object} locatorRecord The record ({ documentId, fingerprint, locatorId, locators, pageKey }).
+ * @returns {Promise<void>} Resolves once the record is stored.
+ */
+function addLocatorRecord(locatorRecord) {
+    // Ignore a malformed record so a bad message cannot corrupt the store.
+    const isRecordValid = locatorRecord !== null
+        && typeof locatorRecord === "object"
+        && typeof locatorRecord.locatorId === "string"
+        && typeof locatorRecord.pageKey === "string";
+
+    if (!isRecordValid) {
+        return Promise.resolve();
+    }
+
+    // File the record through the queue, so a concurrent verdict cannot overwrite this update.
+    return updateLocatorRecords((recordsByPage) => {
+        // Move the page to the end of the map so the least recently recorded page is dropped first.
+        const pageRecords = recordsByPage[locatorRecord.pageKey] || [];
+
+        delete recordsByPage[locatorRecord.pageKey];
+
+        // Append the record and keep only the newest records of the page.
+        pageRecords.push({
+            documentId: locatorRecord.documentId,
+            fingerprint: locatorRecord.fingerprint,
+            locatorId: locatorRecord.locatorId,
+            locators: locatorRecord.locators
+        });
+        recordsByPage[locatorRecord.pageKey] = pageRecords.slice(-MAXIMUM_LOCATOR_RECORDS_PER_PAGE);
+
+        // Drop the oldest pages once the page bound is exceeded.
+        const pageKeys = Object.keys(recordsByPage);
+        const excessPageCount = pageKeys.length - MAXIMUM_LOCATOR_RECORD_PAGES;
+
+        pageKeys
+            .slice(0, Math.max(0, excessPageCount))
+            .forEach((pageKey) => delete recordsByPage[pageKey]);
+    });
+}
 
 /**
  * Accepts a fully built recording event for ordered delivery.
@@ -199,6 +265,7 @@ async function connectWithSettings() {
         onReconnecting: onReconnecting,
         onDisconnected: onDisconnected,
         onCloseBrowser: onCloseBrowserRequested,
+        onLocatorTestRequested: onLocatorTestRequested,
         onPeekRequested: onPeekRequested
     });
 
@@ -556,6 +623,45 @@ async function getFrameIds(tabId) {
 }
 
 /**
+ * Gets one frame's answer to an on-demand locator test.
+ *
+ * @remarks
+ * Owns the extension runtime-message boundary. A frame without a receiver (a browser-internal
+ * page, a frame that is navigating) is represented as null so the other frames still answer.
+ *
+ * @param {object} options Frame query inputs.
+ * @param {number} options.frameId The content-script frame to query.
+ * @param {object} options.request The locator test request ({ using, value }).
+ * @param {number} options.tabId The active tab containing the frame.
+ * @returns {Promise<object|null>} The frame response with frameId attached, or null when unavailable.
+ */
+async function getLocatorTestResponseFromFrame(options) {
+    const { frameId, request, tabId } = options;
+
+    // Ask exactly one frame, so every frame answers for its own document and nothing races.
+    try {
+        const response = await chrome.tabs.sendMessage(
+            tabId,
+            {
+                channel: MESSAGE_CHANNELS.locatorTest,
+                request
+            },
+            { frameId }
+        );
+
+        // Tag a usable answer with its frame, so the caller can tell where a match was found.
+        const isResponseAvailable = response !== null && typeof response === "object";
+
+        return isResponseAvailable
+            ? { ...response, frameId }
+            : null;
+    } catch {
+        // Treat an unavailable or navigating frame as absent so remaining frames can still answer.
+        return null;
+    }
+}
+
+/**
  * Gets one frame's answer to a normalized peek request.
  *
  * @remarks
@@ -824,6 +930,10 @@ function newSwitchFrameEvent(options) {
     const frameCssSelector = frameLocator
         ? frameLocator.cssSelector
         : "";
+    const isFrameLocatorListPresent = Boolean(frameLocator) && Array.isArray(frameLocator.locators);
+    const frameLocators = isFrameLocatorListPresent
+        ? frameLocator.locators
+        : [];
 
     const switchChain = contract.newChain({
         locator: locatorText,
@@ -843,7 +953,8 @@ function newSwitchFrameEvent(options) {
             frameId,
             frameUrl,
             xpath: frameXpath,
-            cssSelector: frameCssSelector
+            cssSelector: frameCssSelector,
+            locators: frameLocators
         }
     });
 }
@@ -972,6 +1083,146 @@ function onDisconnected() {
 
     // Publish the disconnected status to any open page.
     sendStatusToListeners();
+}
+
+/**
+ * Resolves an on-demand locator test through every frame of the active tab.
+ *
+ * @remarks
+ * Owns tab selection, the frame fan-out, and the correlated response invocation. Every frame
+ * evaluates the locator in its own document, since a locator is always scoped to one frame; the
+ * counts are summed and the first matches are returned with the frame they were found in.
+ * Nothing is recorded and the page is not changed.
+ *
+ * @param {object} request The request received through SignalR ({ requestId, using, value }).
+ * @returns {Promise<void>} Resolves after a response has been returned to the server.
+ */
+async function onLocatorTestRequested(request) {
+    // Preserve only a string correlation identifier so malformed server input cannot be coerced silently.
+    const isRequestObject = request !== null && typeof request === "object";
+    const isRequestIdPresent = isRequestObject && typeof request.requestId === "string";
+    const requestId = isRequestIdPresent
+        ? request.requestId
+        : "";
+
+    // Start from an empty result, so a failure still returns a complete, correlated response.
+    const response = {
+        count: 0,
+        error: null,
+        matches: [],
+        requestId
+    };
+
+    try {
+        // Select the active tab from the browser window that most recently owned focus.
+        const queriedTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        const activeTabs = Array.isArray(queriedTabs) ? queriedTabs : [];
+        const activeTab = activeTabs.find((tab) => typeof tab.id === "number");
+
+        if (!activeTab) {
+            throw new Error("No active Chromium tab is available for the locator test.");
+        }
+
+        // Ask every live frame, because the locator may belong to a child frame's document.
+        const frameIds = await getFrameIds(activeTab.id);
+        const responsePromises = frameIds.map((frameId) => getLocatorTestResponseFromFrame({
+            frameId,
+            request: { using: request.using, value: request.value },
+            tabId: activeTab.id
+        }));
+        const frameResponses = (await Promise.all(responsePromises))
+            .filter((frameResponse) => frameResponse !== null);
+
+        // Sum the counts and flatten the described matches, top frame first.
+        frameResponses.forEach((frameResponse) => {
+            const frameUrl = frameResponse.frameContext
+                ? frameResponse.frameContext.frameUrl
+                : "";
+            const chains = Array.isArray(frameResponse.chains)
+                ? frameResponse.chains
+                : [];
+            const frameCount = typeof frameResponse.count === "number"
+                ? frameResponse.count
+                : 0;
+
+            response.count += frameCount;
+            response.matches.push(...chains.map((chain) => ({
+                chain,
+                frameId: frameResponse.frameId,
+                frameUrl
+            })));
+        });
+
+        // Cap the described matches across all frames; the count above stays the full total.
+        response.matches = response.matches.slice(0, MAXIMUM_LOCATOR_TEST_MATCHES);
+    } catch (error) {
+        // Convert any browser API or content failure into a stable diagnostic for the waiting caller.
+        response.error = resolveErrorMessage(error);
+    }
+
+    // Complete the correlation only while the originating SignalR connection remains available.
+    if (recorderConnection) {
+        await recorderConnection.sendLocatorTestResponse(response);
+    }
+}
+
+/**
+ * Applies a hot-test verdict to the recorded event it belongs to.
+ *
+ * @remarks
+ * Owns the correction of an already recorded event. The locators are replaced in the popup
+ * stack, in the reorder buffer, and in the hot-test record, so every later reader sees the
+ * tested ranking. An event that is still buffered is corrected in place and needs no amendment;
+ * one that was already sent is corrected at the hub through a locator amendment.
+ *
+ * @param {object} message The verdict message ({ locatorId, locator, locators, locatorStrength,
+ *   pageKey, reason }).
+ * @returns {Promise<void>} Resolves once the verdict is applied and relayed.
+ */
+async function onLocatorVerdictMessage(message) {
+    // Ignore a malformed verdict so a bad message cannot overwrite recorded locators.
+    const isVerdictValid = typeof message.locatorId === "string" && Array.isArray(message.locators);
+
+    if (!isVerdictValid) {
+        return;
+    }
+
+    // Correct the event wherever this worker still holds it.
+    const bufferedEvents = pendingEvents.map((pending) => pending.event);
+    const isBuffered = setEventLocators(bufferedEvents, message) > 0;
+    const isStacked = setEventLocators(capturedEvents, message) > 0;
+
+    // Keep the hot-test record current, so the next revisit starts from these verdicts.
+    await updateLocatorRecords((recordsByPage) => {
+        const pageRecords = recordsByPage[message.pageKey] || [];
+        const record = pageRecords.find((pageRecord) => pageRecord.locatorId === message.locatorId);
+
+        if (record) {
+            record.locators = message.locators;
+        }
+    });
+
+    // Refresh the popup so the strength badge reflects the new verdicts.
+    if (isStacked) {
+        sendStatusToListeners();
+    }
+
+    // A buffered event leaves with the corrected locators; a delivered one needs an amendment.
+    const isAmendmentNeeded = !isBuffered && Boolean(recorderConnection);
+
+    if (!isAmendmentNeeded) {
+        return;
+    }
+
+    // Relay the corrected ranking to the hub, stamped so consumers can order amendments.
+    await recorderConnection.sendLocatorAmendment({
+        locator: message.locator,
+        locatorId: message.locatorId,
+        locatorStrength: message.locatorStrength,
+        locators: message.locators,
+        reason: message.reason,
+        timestamp: Date.now()
+    });
 }
 
 /**
@@ -1189,6 +1440,11 @@ async function onRecordingEventMessage(message, sender) {
 
     // Record the interaction itself.
     await addRecordingEvent(message.recordingEvent);
+
+    // File the hot-test record of an element action, so a later load of its page can re-test it.
+    if (message.locatorRecord) {
+        await addLocatorRecord(message.locatorRecord);
+    }
 }
 
 /**
@@ -1220,6 +1476,36 @@ function onRuntimeMessage(message, sender, sendResponse) {
         return true;
     }
 
+    // A content script reports that a hot test changed the verdicts of recorded locators. Apply
+    // them and reply on completion, so the worker stays alive through the amendment send.
+    if (message.channel === MESSAGE_CHANNELS.locatorVerdict) {
+        onLocatorVerdictMessage(message)
+            .then(() => sendResponse({ isApplied: true }))
+            .catch((error) => {
+                console.error("[g4-recorder] failed to apply locator verdict:", error);
+
+                sendResponse({ isApplied: false });
+            });
+
+        return true;
+    }
+
+    // A freshly loaded page asks for the locators an earlier load of it recorded, to re-test them.
+    if (message.channel === MESSAGE_CHANNELS.locatorRevisit) {
+        readLocatorRecords()
+            .then((recordsByPage) => {
+                const pageRecords = recordsByPage[message.pageKey] || [];
+                const records = pageRecords.filter(
+                    (pageRecord) => pageRecord.documentId !== message.documentId
+                );
+
+                sendResponse({ records });
+            })
+            .catch(() => sendResponse({ records: [] }));
+
+        return true;
+    }
+
     // A page asked for the current status; answer asynchronously with a snapshot.
     if (message.channel === MESSAGE_CHANNELS.requestStatus) {
         sendResponse(getStatusSnapshot());
@@ -1235,6 +1521,7 @@ function onRuntimeMessage(message, sender, sendResponse) {
         capturedEvents = [];
         pendingEvents = [];
         floorTimestampMilliseconds = Date.now();
+        removeLocatorRecords();
 
         if (flushTimerId !== null) {
             clearTimeout(flushTimerId);
@@ -1409,6 +1696,28 @@ function persistWindowHandles() {
 }
 
 /**
+ * Reads the hot-test records of every recorded page.
+ *
+ * @remarks
+ * Compute-only over storage. A missing or malformed value resolves to an empty map, so callers
+ * never have to guard the shape.
+ *
+ * @returns {Promise<object>} The records, keyed by page key.
+ */
+async function readLocatorRecords() {
+    // Read the single stored map; an unset key resolves to undefined.
+    const storageResult = await chrome.storage.session.get(LOCATOR_RECORDS_KEY);
+    const recordsByPage = storageResult[LOCATOR_RECORDS_KEY];
+
+    // Fall back to an empty map for anything that is not a stored object.
+    const isRecordsObject = recordsByPage !== null && typeof recordsByPage === "object";
+
+    return isRecordsObject
+        ? recordsByPage
+        : {};
+}
+
+/**
  * Records an event into the session stack and refreshes any open page.
  *
  * @remarks
@@ -1456,6 +1765,21 @@ async function removeActiveFrameId(tabId) {
 }
 
 /**
+ * Removes every hot-test record.
+ *
+ * @remarks
+ * Owns a storage side effect, serialised through the records queue. Called when a session
+ * starts or the stack is cleared, because the records describe events that no longer exist.
+ *
+ * @returns {Promise<void>} Resolves once the records are removed.
+ */
+function removeLocatorRecords() {
+    return updateLocatorRecords((recordsByPage) => {
+        Object.keys(recordsByPage).forEach((pageKey) => delete recordsByPage[pageKey]);
+    });
+}
+
+/**
  * Removes a tab from the window-handle list when it closes.
  *
  * @remarks
@@ -1498,6 +1822,9 @@ function resetSession() {
     capturedEvents = [];
     pendingEvents = [];
     floorTimestampMilliseconds = Date.now();
+
+    // Drop the hot-test records of the previous session; they describe events that are gone.
+    removeLocatorRecords();
 }
 
 /**
@@ -1674,6 +2001,51 @@ async function setActiveFrameId(tabId, frameId) {
 }
 
 /**
+ * Replaces the locators of the recorded events a hot-test verdict belongs to.
+ *
+ * @remarks
+ * Mutates the given events in place. The verdict addresses an event through the locator
+ * identifier on its trigger node, the first node of a Chromium chain. The chain locator, the
+ * ranked list, and the strength label are replaced together so they can never disagree.
+ *
+ * @param {object[]} recordingEvents The events to search.
+ * @param {object} verdict The verdict ({ locatorId, locator, locators, locatorStrength }).
+ * @returns {number} The number of events that were corrected.
+ */
+function setEventLocators(recordingEvents, verdict) {
+    let correctedCount = 0;
+
+    recordingEvents.forEach((recordingEvent) => {
+        // Resolve the trigger node's properties; events without an element have none.
+        const chain = recordingEvent
+            ? recordingEvent.chain
+            : null;
+        const isPathPresent = Boolean(chain) && Array.isArray(chain.path);
+        const triggerNode = isPathPresent
+            ? chain.path[0]
+            : null;
+        const properties = triggerNode
+            ? triggerNode.properties
+            : null;
+
+        // Skip every event the verdict does not address.
+        const isTargetEvent = Boolean(properties) && properties.locatorId === verdict.locatorId;
+
+        if (!isTargetEvent) {
+            return;
+        }
+
+        // Replace the ranking as one unit, keeping the previous locator when none was supplied.
+        properties.locators = verdict.locators;
+        properties.locatorStrength = verdict.locatorStrength || properties.locatorStrength;
+        chain.locator = verdict.locator || chain.locator;
+        correctedCount += 1;
+    });
+
+    return correctedCount;
+}
+
+/**
  * Stops and disposes the current connection, if any.
  *
  * @remarks
@@ -1824,6 +2196,40 @@ function testWebUrl(urlText) {
     } catch (error) {
         return false;
     }
+}
+
+/**
+ * Applies one change to the hot-test records as a serialised read-modify-write.
+ *
+ * @remarks
+ * Owns the records queue. Each update waits for the previous one, reads the stored map, lets
+ * the callback change it in place, and writes it back, so concurrent recording events and
+ * verdicts cannot overwrite each other. A storage failure is swallowed: losing a hot-test record
+ * only skips a later re-test and must never fail the recording.
+ *
+ * @param {(recordsByPage: object) => void} updateRecords Changes the records map in place.
+ * @returns {Promise<void>} Resolves once the change is stored.
+ */
+function updateLocatorRecords(updateRecords) {
+    // Runs one read-modify-write; it starts only after the previous update has finished.
+    const onPreviousUpdateSettled = async () => {
+        // Start from what is stored, so the change builds on every earlier update.
+        const recordsByPage = await readLocatorRecords();
+
+        // Let the caller change the map in place, then write the whole map back.
+        updateRecords(recordsByPage);
+
+        await chrome.storage.session.set({ [LOCATOR_RECORDS_KEY]: recordsByPage });
+    };
+
+    // Chain the update behind the queue and make the result the new tail of the queue.
+    locatorRecordsQueue = locatorRecordsQueue
+        .then(onPreviousUpdateSettled)
+        .catch(() => {
+            // Session storage may be briefly unavailable; the next update starts from what is stored.
+        });
+
+    return locatorRecordsQueue;
 }
 
 /**

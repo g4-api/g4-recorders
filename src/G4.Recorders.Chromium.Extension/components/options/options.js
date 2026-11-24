@@ -39,6 +39,10 @@
         domContextLevelsInput: document.getElementById("dom-context-levels-input"),
         domContextSizeField: document.getElementById("dom-context-size-field"),
         domContextSizeInput: document.getElementById("dom-context-size-input"),
+        locatorTestHooksFirstSwitch: document.getElementById("locator-test-hooks-first-switch"),
+        locatorTestHooksInput: document.getElementById("locator-test-hooks-input"),
+        locatorRetargetSwitch: document.getElementById("locator-retarget-switch"),
+        locatorHotTestingSwitch: document.getElementById("locator-hot-testing-switch"),
         resetDefaultsButton: document.getElementById("reset-defaults-button"),
         statusMessage: document.getElementById("settings-status-message")
     };
@@ -95,6 +99,20 @@
             ? parsedKilobytes
             : DEFAULT_SETTINGS.domContextMaximumKilobytes;
 
+        // Normalise the test-hook list: trimmed names, no blanks, defaults when nothing is left.
+        const enteredTestHooks = elements.locatorTestHooksInput.value
+            .split(",")
+            .map((attributeName) => attributeName.trim())
+            .filter((attributeName) => attributeName.length > 0);
+        const locatorTestHookAttributes = enteredTestHooks.length > 0
+            ? enteredTestHooks
+            : DEFAULT_SETTINGS.locatorTestHookAttributes;
+
+        // The switch states the exception; user-facing locators are the default preference.
+        const locatorPreference = controls.locatorTestHooksFirst.get()
+            ? "TestHooks"
+            : "UserFacing";
+
         return {
             hubUrl: elements.hubUrlInput.value.trim() || DEFAULT_SETTINGS.hubUrl,
             isAutoConnectEnabled: controls.autoConnect.get(),
@@ -104,6 +122,10 @@
             isDomContextEnabled: controls.domContext.get(),
             domContextAncestorLevels,
             domContextMaximumKilobytes,
+            locatorPreference,
+            locatorTestHookAttributes,
+            isLocatorRetargetEnabled: controls.locatorRetarget.get(),
+            isLocatorHotTestingEnabled: controls.locatorHotTesting.get(),
             reconnectDelaysMilliseconds: getReconnectDelays(elements.reconnectDelaysInput.value),
             enabledEvents
         };
@@ -149,7 +171,8 @@
      * helpers drive each boolean switch and the number field by name.
      *
      * @returns {object} The control handles ({ autoConnect, redactPasswords, numberField, hoverDwellField,
-     *   domContext, domContextLevelsField, domContextSizeField, eventSwitches }).
+     *   domContext, domContextLevelsField, domContextSizeField, locatorTestHooksFirst,
+     *   locatorRetarget, locatorHotTesting, eventSwitches }).
      */
     function newControls() {
         // Enhance each event-toggle switch, keyed by its settings key.
@@ -171,6 +194,9 @@
             domContext: formControls.newToggleSwitch(elements.domContextSwitch),
             domContextLevelsField: formControls.newNumberField(elements.domContextLevelsField),
             domContextSizeField: formControls.newNumberField(elements.domContextSizeField),
+            locatorTestHooksFirst: formControls.newToggleSwitch(elements.locatorTestHooksFirstSwitch),
+            locatorRetarget: formControls.newToggleSwitch(elements.locatorRetargetSwitch),
+            locatorHotTesting: formControls.newToggleSwitch(elements.locatorHotTestingSwitch),
             eventSwitches
         };
     }
@@ -254,11 +280,15 @@
         elements.reconnectDelaysInput.value = settingsToShow.reconnectDelaysMilliseconds.join(", ");
         elements.domContextLevelsInput.value = String(settingsToShow.domContextAncestorLevels);
         elements.domContextSizeInput.value = String(settingsToShow.domContextMaximumKilobytes);
+        elements.locatorTestHooksInput.value = settingsToShow.locatorTestHookAttributes.join(", ");
 
         // Sync the boolean switches.
         controls.autoConnect.set(settingsToShow.isAutoConnectEnabled);
         controls.redactPasswords.set(settingsToShow.isRedactPasswordsEnabled);
         controls.domContext.set(settingsToShow.isDomContextEnabled);
+        controls.locatorTestHooksFirst.set(settingsToShow.locatorPreference === "TestHooks");
+        controls.locatorRetarget.set(settingsToShow.isLocatorRetargetEnabled);
+        controls.locatorHotTesting.set(settingsToShow.isLocatorHotTestingEnabled);
 
         // Sync each per-event switch from the enabledEvents map.
         EVENT_TOGGLE_KEYS.forEach((toggleKey) => {

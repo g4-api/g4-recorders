@@ -28,4 +28,8 @@
   --recorder-popup-status-connected: var(--theme-status-connected);
   --recorder-popup-status-reconnecting: var(--theme-status-reconnecting);
   --recorder-popup-status-disconnected: var(--theme-status-disconnected);
+
+  --recorder-popup-strength-strong: var(--theme-status-connected);
+  --recorder-popup-strength-fair: var(--theme-status-reconnecting);
+  --recorder-popup-strength-weak: var(--theme-status-disconnected);
 }

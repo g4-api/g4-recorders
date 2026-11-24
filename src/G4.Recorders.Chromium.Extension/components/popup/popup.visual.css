@@ -104,6 +104,18 @@ body {
   font-family: var(--recorder-popup-monospace-font-family);
 }
 
+.recorder-popup__event-strength--strong {
+  color: var(--recorder-popup-strength-strong);
+}
+
+.recorder-popup__event-strength--fair {
+  color: var(--recorder-popup-strength-fair);
+}
+
+.recorder-popup__event-strength--weak {
+  color: var(--recorder-popup-strength-weak);
+}
+
 .recorder-popup__event-time {
   color: var(--recorder-popup-muted-foreground);
 }

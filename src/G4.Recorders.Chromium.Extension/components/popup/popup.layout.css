@@ -112,6 +112,17 @@ body {
   font-size: 0.6875rem;
 }
 
+.recorder-popup__event-locator--with-strength {
+  grid-column: 2 / -1;
+}
+
+.recorder-popup__event-strength {
+  grid-column: 1;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 .recorder-popup__event-time {
   font-size: 0.6875rem;
   white-space: nowrap;

@@ -107,28 +107,28 @@ Recorder messages are written to the console window of the recorder. Messages fr
 - **Cause:** A peek call arrived, but no browser with the recorder extension is connected to the hub. REST callers see this as `503`.
 - **Check:** Make sure you launched the browser through the recorder, and that it is still open.
 - **Fix:** Launch a recorder browser as in [Module 3](03-chromium-recorder.md), then repeat the call.
-- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:92`
+- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:134`
 
 ### More than one Chromium recorder extension is connected; the target is ambiguous
 
 - **Cause:** Two recorder browsers are connected at once. A peek call must pick exactly one.
 - **Check:** Count the recorder browsers that are open.
 - **Fix:** Stop one browser with the `DELETE` call and its process id, then repeat the call.
-- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:93`
+- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:135`
 
 ### The Chromium recorder extension did not answer the peek request in time
 
 - **Cause:** The extension did not return an element within 5 seconds. REST callers see this as `504`. The page may be busy, hidden or still loading.
 - **Check:** Look at the recorder browser. Make sure the tab is open and has finished loading.
 - **Fix:** Repeat the call. If it keeps timing out, reload the tab so the content script is injected again.
-- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:138`
+- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:182`
 
 ### The Chromium recorder extension disconnected during the peek request
 
 - **Cause:** The browser or the extension closed while a peek was waiting for its answer.
 - **Check:** Check whether the browser was closed, crashed or stopped by another client.
 - **Fix:** Launch a recorder browser again and repeat the call.
-- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:193`
+- **Source:** `src/G4.Recorders.Chromium.Domain/ChromiumRecorderRepository.cs:237`
 
 ---
 
@@ -221,6 +221,13 @@ Recorder messages are written to the console window of the recorder. Messages fr
 - **Check:** Run `adb devices`. `unauthorized` waits for you to accept the prompt on the device; `offline` needs a reconnect.
 - **Fix:** Connect a device with USB debugging on, or start an emulator, then start the recording again.
 - **Source:** `src/G4.Recorders.Android.Domain/AndroidRecorderLauncher.cs`, `ResolveSerialAsync`
+
+### The UIA driver server stops answering after an Android emulator starts
+
+- **Cause:** The emulator took ports `5554` and `5555`, its defaults. The G4 sandbox uses `5554` for the UIA node and `5555` for the UIA driver server.
+- **Check:** Run `adb devices`. An emulator listed as `emulator-5554` uses the two UIA ports.
+- **Fix:** Close the emulator and start it on another port: `emulator -avd <name of your virtual device> -port 5580`. adb then lists it as `emulator-5580`.
+- **Source:** the sandbox's `add-uia-node.cmd` and `start-uia-driver-server.cmd`
 
 ### More than one Android device is connected; set appium:udid to choose one
 

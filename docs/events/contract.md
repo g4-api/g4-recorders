@@ -11,7 +11,7 @@ The field names below are the JSON names on the wire. The serializer writes came
 | Sender | Where the envelope is built | Shape |
 | --- | --- | --- |
 | UIA recorder | `UiaEventCaptureService.cs` | `{ "value": <event> }` |
-| Chromium recorder | `ChromiumEventCaptureService.cs:34` | `{ "value": <event> }` |
+| Chromium recorder | `ChromiumEventCaptureService.cs:55` | `{ "value": <event> }` |
 | SAP recorder | `SapRecordingBroadcaster.cs:29` | `{ "value": { "user32": <event>, "nativeSap": <event> } }` (see [SAP messages](sap-message.md)) |
 | Android recorder | `AndroidEventCaptureService.cs` | `{ "value": <event> }` |
 

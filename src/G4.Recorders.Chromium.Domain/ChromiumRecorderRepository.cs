@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 namespace G4.Recorders.Chromium.Domain
 {
     /// <summary>
-    /// Coordinates Chromium peek requests through the recorder extension's SignalR connection.
+    /// Coordinates Chromium peek and locator test requests through the recorder extension's SignalR connection.
     /// </summary>
     /// <remarks>
     /// This service is registered as a singleton because extension registrations and pending correlations span
@@ -25,6 +25,9 @@ namespace G4.Recorders.Chromium.Domain
     public class ChromiumRecorderRepository(IHubContext<ChromiumRecorderHub> hubContext) : IChromiumRecorderRepository
     {
         #region *** Constants    ***
+        // Limits a locator test round trip so abandoned browser contexts cannot retain server requests indefinitely.
+        private static readonly TimeSpan LocatorTestTimeout = TimeSpan.FromSeconds(5);
+
         // Limits an extension round trip so abandoned browser contexts cannot retain server requests indefinitely.
         private static readonly TimeSpan PeekTimeout = TimeSpan.FromSeconds(5);
         #endregion
@@ -33,10 +36,13 @@ namespace G4.Recorders.Chromium.Domain
         // Tracks SignalR connections that explicitly identified themselves as recorder extensions.
         private readonly ConcurrentDictionary<string, byte> _extensionConnections = new();
 
-        // Sends server-to-extension peek requests without coupling the repository to a live hub instance.
+        // Sends server-to-extension requests without coupling the repository to a live hub instance.
         private readonly IHubContext<ChromiumRecorderHub> _hubContext = hubContext;
 
-        // Owns request correlations until the matching response, cancellation, timeout, or disconnect completes them.
+        // Owns locator test correlations until the matching response, cancellation, timeout, or disconnect ends them.
+        private readonly ConcurrentDictionary<string, PendingLocatorTestModel> _pendingLocatorTests = new();
+
+        // Owns peek correlations until the matching response, cancellation, timeout, or disconnect completes them.
         private readonly ConcurrentDictionary<string, PendingPeekModel> _pendingPeeks = new();
         #endregion
 
@@ -45,11 +51,14 @@ namespace G4.Recorders.Chromium.Domain
         public bool Complete(ChromiumPeekResponseModel response, string connectionId)
         {
             // Reject malformed or late responses before they can affect an unrelated pending request.
-            if (response == null || string.IsNullOrWhiteSpace(response.RequestId))
+            var isMalformed = response == null || string.IsNullOrWhiteSpace(response.RequestId);
+
+            if (isMalformed)
             {
                 return false;
             }
 
+            // Ignore an unknown or late correlation, which an answer after the timeout produces.
             if (!_pendingPeeks.TryGetValue(response.RequestId, out var pendingPeek))
             {
                 return false;
@@ -74,14 +83,47 @@ namespace G4.Recorders.Chromium.Domain
         }
 
         /// <inheritdoc />
+        public bool Complete(ChromiumLocatorTestResponseModel response, string connectionId)
+        {
+            // Reject a malformed response before it can affect an unrelated pending locator test.
+            var isMalformed = response == null || string.IsNullOrWhiteSpace(response.RequestId);
+
+            if (isMalformed)
+            {
+                return false;
+            }
+
+            // Ignore an unknown or late correlation, which an answer after the timeout produces.
+            if (!_pendingLocatorTests.TryGetValue(response.RequestId, out var pendingLocatorTest))
+            {
+                return false;
+            }
+
+            // Accept results only from the extension connection that received this correlation.
+            if (!string.Equals(pendingLocatorTest.ConnectionId, connectionId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Surface extension execution failures through the original waiting request.
+            if (!string.IsNullOrWhiteSpace(response.Error))
+            {
+                return pendingLocatorTest.Completion.TrySetException(new InvalidOperationException(response.Error));
+            }
+
+            // Normalize an omitted match list so the waiting request always maps a stable, enumerable collection.
+            response.Matches ??= [];
+
+            return pendingLocatorTest.Completion.TrySetResult(response);
+        }
+
+        /// <inheritdoc />
         public async Task<ChromiumChainModel> GetElementChainAsync(
             RecorderPeekRequestModel request,
             CancellationToken cancellationToken)
         {
             // Require a normalized request before allocating correlation and cancellation resources.
-            ArgumentNullException.ThrowIfNull(
-                argument: request,
-                paramName: nameof(request));
+            ArgumentNullException.ThrowIfNull(argument: request);
 
             // Select one producer explicitly so simultaneous extensions cannot race to complete the same query.
             var connectionIds = _extensionConnections.Keys.ToArray();
@@ -98,13 +140,14 @@ namespace G4.Recorders.Chromium.Domain
             var requestId = Guid.NewGuid().ToString("N");
             var completion = new TaskCompletionSource<ChromiumChainModel>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            var pendingPeek = new PendingPeekModel(connectionIds[0], completion);
+            var pendingPeek = new PendingPeekModel(connectionId: connectionIds[0], completion);
 
             if (!_pendingPeeks.TryAdd(requestId, pendingPeek))
             {
                 throw new InvalidOperationException("Failed to register the Chromium peek request correlation.");
             }
 
+            // Bound the round trip by the peek timeout and the caller's token so an unanswered request is released.
             using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutSource.CancelAfter(PeekTimeout);
 
@@ -135,6 +178,7 @@ namespace G4.Recorders.Chromium.Domain
             }
             catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
             {
+                // Report the elapsed timeout distinctly; a caller-requested cancellation keeps its own exception.
                 throw new TimeoutException("The Chromium recorder extension did not answer the peek request in time.", exception);
             }
             finally
@@ -164,10 +208,9 @@ namespace G4.Recorders.Chromium.Domain
         public void Register(string connectionId)
         {
             // Require a transport-owned identifier before exposing the connection as an extension target.
-            ArgumentException.ThrowIfNullOrWhiteSpace(
-                argument: connectionId,
-                paramName: nameof(connectionId));
+            ArgumentException.ThrowIfNullOrWhiteSpace(argument: connectionId);
 
+            // Register idempotently so a reconnecting extension becomes a request target under its new identifier.
             _extensionConnections[connectionId] = 0;
         }
 
@@ -180,6 +223,7 @@ namespace G4.Recorders.Chromium.Domain
                 return;
             }
 
+            // Stop selecting the connection as a request target before failing what was already sent to it.
             _extensionConnections.TryRemove(connectionId, out _);
 
             // Fail only correlations sent to this connection so other extension lifecycles remain isolated.
@@ -191,6 +235,17 @@ namespace G4.Recorders.Chromium.Domain
             {
                 disconnectedPeek.Value.Completion.TrySetException(
                     new InvalidOperationException("The Chromium recorder extension disconnected during the peek request."));
+            }
+
+            // Fail the locator tests of this connection the same way so their callers stop waiting for the timeout.
+            var disconnectedLocatorTests = _pendingLocatorTests
+                .Where(item => item.Value.ConnectionId == connectionId)
+                .ToArray();
+
+            foreach (var disconnectedLocatorTest in disconnectedLocatorTests)
+            {
+                disconnectedLocatorTest.Value.Completion.TrySetException(
+                    new InvalidOperationException("The Chromium recorder extension disconnected during the locator test."));
             }
         }
 
@@ -209,9 +264,114 @@ namespace G4.Recorders.Chromium.Domain
             // extension surface has no equivalent of the UIA host's own OS-level window handle to focus.
             throw new NotImplementedException("SetWindowFocus is not implemented for the Chromium recorder surface yet.");
         }
+
+        /// <inheritdoc />
+        public async Task<ChromiumLocatorTestResultModel> TestLocatorAsync(
+            string @using,
+            string value,
+            CancellationToken cancellationToken)
+        {
+            // Assert the complete locator contract before allocating correlation and cancellation resources.
+            AssertArguments(@using, value);
+
+            // Select one producer explicitly so simultaneous extensions cannot race to complete the same test.
+            var connectionIds = _extensionConnections.Keys.ToArray();
+
+            if (connectionIds.Length != 1)
+            {
+                var message = connectionIds.Length == 0
+                    ? "No Chromium recorder extension is connected."
+                    : "More than one Chromium recorder extension is connected; the target is ambiguous.";
+                throw new InvalidOperationException(message);
+            }
+
+            // Allocate a cryptographically strong correlation and register it before sending the request.
+            var requestId = Guid.NewGuid().ToString("N");
+            var completion = new TaskCompletionSource<ChromiumLocatorTestResponseModel>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var pendingLocatorTest = new PendingLocatorTestModel(connectionId: connectionIds[0], completion);
+
+            if (!_pendingLocatorTests.TryAdd(requestId, pendingLocatorTest))
+            {
+                throw new InvalidOperationException("Failed to register the Chromium locator test request correlation.");
+            }
+
+            // Bound the round trip by the test timeout and the caller's token so an unanswered request is released.
+            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutSource.CancelAfter(LocatorTestTimeout);
+
+            using var cancellationRegistration = timeoutSource.Token.Register(
+                () => completion.TrySetCanceled(timeoutSource.Token));
+
+            // Declared before the guarded round trip because the response is mapped only after the correlation cleanup.
+            ChromiumLocatorTestResponseModel response;
+
+            try
+            {
+                // Send the locator only to the selected extension connection.
+                var extensionRequest = new ChromiumLocatorTestRequestModel
+                {
+                    RequestId = requestId,
+                    Using = @using,
+                    Value = value
+                };
+
+                await _hubContext.Clients
+                    .Client(connectionIds[0])
+                    .SendAsync(
+                        method: ChromiumRecorderHub.ReceiveLocatorTestRequestClientMethod,
+                        arg1: extensionRequest,
+                        cancellationToken: timeoutSource.Token)
+                    .ConfigureAwait(false);
+
+                // Await the independently returned extension response without blocking a hub or request thread.
+                response = await completion.Task.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Report the elapsed timeout distinctly; a caller-requested cancellation keeps its own exception.
+                throw new TimeoutException("The Chromium recorder extension did not answer the locator test in time.", exception);
+            }
+            finally
+            {
+                // Remove correlation state for every terminal path so late responses are safely ignored.
+                _pendingLocatorTests.TryRemove(requestId, out _);
+            }
+
+            // Echo the tested locator beside the extension's answer so the caller reads one self-describing result.
+            return new ChromiumLocatorTestResultModel
+            {
+                Count = response.Count,
+                Matches = response.Matches,
+                Using = @using,
+                Value = value
+            };
+
+            // Asserts both locator members before the parent method allocates a correlation or performs I/O.
+            // The helper does not mutate caller data and reports each invalid parameter through a guard exception.
+            static void AssertArguments(string @using, string value)
+            {
+                // Require the strategy and the expression because the extension cannot evaluate a locator without both.
+                // The strategy guard names its parameter explicitly so the diagnostic reads "using", not "@using".
+                ArgumentException.ThrowIfNullOrWhiteSpace(argument: @using, paramName: nameof(@using));
+                ArgumentException.ThrowIfNullOrWhiteSpace(argument: value);
+            }
+        }
         #endregion
 
         #region *** Nested Types ***
+        // Retains the exact extension connection and completion source that own one in-flight locator test.
+        private sealed class PendingLocatorTestModel(
+            string connectionId,
+            TaskCompletionSource<ChromiumLocatorTestResponseModel> completion)
+        {
+            // Identifies the extension connection selected when the locator test was sent.
+            internal string ConnectionId { get; } = connectionId;
+
+            // Completes the awaiting server caller exactly once when a response or failure arrives.
+            internal TaskCompletionSource<ChromiumLocatorTestResponseModel> Completion { get; } = completion;
+        }
+
         // Retains the exact extension connection and completion source that own one in-flight correlation.
         private sealed class PendingPeekModel(
             string connectionId,

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>G4 Chromium Recorder — Locator Lab Test</title>
+</head>
+
+<body>
+  <!-- The lab page under test; the extension's locator modules are injected into it at run time. -->
+  <iframe id="lab-frame"
+          title="Locator lab under test"
+          data-test-id="locator-lab-test-frame"
+          height="1600"
+          src="../G4.Recorders.Chromium/wwwroot/recorder-locator-lab.html"
+          width="1200"></iframe>
+
+  <!-- The machine-readable result, read from the dumped DOM by run-locator-lab.mjs. -->
+  <script type="application/json" id="lab-results" data-test-id="locator-lab-test-results"></script>
+
+  <script src="locator-lab.test.js"></script>
+</body>
+
+</html>

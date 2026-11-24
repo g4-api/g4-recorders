@@ -13,7 +13,7 @@ the project and no script is ever fetched from a network at runtime.
 
 ```text
 DOM event (any frame)
-  -> content-script.js builds a RecorderEventModel (XPath locator + CSS, ARIA mapping)
+  -> content-script.js builds a RecorderEventModel (ranked, verified locators + ARIA mapping)
   -> chrome.runtime message to the background service worker
   -> background.js invokes SendRecordingEvent on the hub (SignalR over WebSocket)
   -> C# ChromiumRecorderHub re-broadcasts ReceiveRecordingEvent { value: <event> }
@@ -43,12 +43,14 @@ The extension's contract builder (`lib/recorder-contract.js`) still adds an even
 
 | Contract field | Source in the browser |
 | --- | --- |
-| `locator` | absolute XPath of the trigger element |
-| `properties.cssSelector` | unique CSS selector of the element |
+| `locator` | best verified XPath of the trigger element, built from what the user sees (`lib/locator-candidates.js`) |
+| `properties.locators` / `properties.locatorStrength` / `properties.locatorId` | trigger node of element events only: the ranked locator list, its strength label, and the identifier a locator amendment refers to |
+| `properties.shadowPath` / `properties.originalLocator` | trigger node only, when they apply: the path into a shadow root, and the raw target of a retargeted click |
+| `properties.cssSelector` | structural CSS selector of the element |
 | `properties.domContext` / `properties.domContextLength` | trigger node of element events only: Base64 (UTF-8) of the cleaned markup around the element, and its decoded byte count (`lib/dom-context.js`) |
 | `controlType` | ARIA `role`, else the tag name |
 | `automationId` | element `id`, else `data-test-id` |
-| `name` | accessible name (aria-label, aria-labelledby, alt/title/placeholder, text) |
+| `name` | accessible name (aria-labelledby, aria-label, `<label>`, alt/placeholder/title, text) |
 | `className` | the element `class` attribute |
 | `bounds` | `getBoundingClientRect()` |
 | `machine.name` / `machine.publicAddress` | page hostname / page origin |
@@ -73,7 +75,11 @@ lib/
   constants.js          shared config, channels, defaults
   settings-store.js     chrome.storage.sync wrapper
   recorder-contract.js  contract builders
-  dom-locator.js        absolute XPath + CSS selector
+  dom-locator.js        locator primitives: absolute XPath, CSS selector, literals, evaluator
+  dom-accessibility.js  role, accessible name, label, actionable ancestor
+  locator-candidates.js ranked, verified locator candidates (user-facing first)
+  locator-monitor.js    hot testing: settle test and revisit test
+  dom-context.js        Base64 snapshot of the markup around the target
   dom-mapper.js         element -> node, chain builder
   event-catalog.js      DOM event -> { type, event, value }
   signalr-connection.js wrapper over the official SignalR client
@@ -116,6 +122,8 @@ Open the popup and click **Settings** (or use the browser's extension options):
 - **Redact passwords** — mask values from password/sensitive fields (default off).
 - **Maximum events per session** — popup stack cap (default 200).
 - **Events to capture** — per-event-type toggles.
+- **Locators** — whether test hooks rank above user-facing locators, the test hook attribute
+  list, retargeting a click to its control, and hot testing while recording.
 
 > Changing the hub host or port may require updating `host_permissions` in
 > `manifest.json`, because extension host permissions are static.
@@ -148,3 +156,11 @@ The hub's CORS origin check must also allow the extension origin
   coordinates are not available to web pages.
 - Locators are scoped to each frame's own document; cross-frame interactions are
   recorded with the frame's local path.
+- A target inside a shadow root, open or closed, is addressed by a CSS shadow path
+  (`host >>> inner`). Closed roots are read through `chrome.dom.openOrClosedShadowRoot`, which
+  needs no extra permission.
+- The locator rules, strategies and verdicts are described in
+  [docs/events/chromium-events.md](../../docs/events/chromium-events.md#locators).
+- The locator lab (`recorder-locator-lab.html` on the recorder host) and its automated test
+  (`src/G4.Recorders.Chromium.Extension.Tests`, run with `node run-locator-lab.mjs`) prove that
+  recorded locators survive inserted content, reordering, regenerated ids and a re-render.

@@ -23,6 +23,16 @@ The recorder talks to the device through adb, the Android Debug Bridge. adb is p
 1. Install the Android SDK platform-tools.
 2. Set `ANDROID_HOME` to the SDK folder, or put the `platform-tools` folder on your `PATH`.
 3. Connect a phone with USB debugging on, or start an emulator.
+
+   An emulator takes ports `5554` and `5555` unless you choose others. The G4 sandbox uses the same two ports for
+   the UIA node and the UIA driver server. When UIA runs on the same machine, start the emulator on port `5580`:
+
+   ```bash
+   emulator -avd <name of your virtual device> -port 5580
+   ```
+
+   The emulator then takes ports `5580` and `5581`, and adb lists it as `emulator-5580`.
+
 4. Run the command below.
 
    ```bash

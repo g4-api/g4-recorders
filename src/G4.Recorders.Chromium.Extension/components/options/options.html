@@ -538,6 +538,91 @@
         </div>
       </section>
 
+      <section class="recorder-options__section"
+               data-test-id="locator-settings-section"
+               aria-label="Locator settings">
+        <h2 class="recorder-options__section-title">
+          Locators
+        </h2>
+
+        <div class="recorder-options__control-row">
+          <button type="button"
+                  id="locator-test-hooks-first-switch"
+                  class="switch"
+                  data-test-id="locator-test-hooks-first-switch"
+                  aria-checked="false"
+                  aria-describedby="locator-test-hooks-first-hint"
+                  role="switch">
+            <span class="switch__track">
+              <span class="switch__knob"></span>
+            </span>
+            <span class="switch__label">Prefer test hooks over user-facing text</span>
+          </button>
+        </div>
+        <span id="locator-test-hooks-first-hint"
+              class="recorder-options__hint"
+              data-test-id="locator-test-hooks-first-hint">
+          Off: the locator is built from what the user sees (label, role and name, placeholder) and a test hook is the next choice. On: a test hook wins whenever the element has one.
+        </span>
+
+        <div class="recorder-options__field">
+          <label class="recorder-options__label" for="locator-test-hooks-input">
+            Test hook attributes
+          </label>
+          <input type="text"
+                 id="locator-test-hooks-input"
+                 class="recorder-options__input"
+                 data-test-id="locator-test-hooks-input"
+                 aria-describedby="locator-test-hooks-hint"
+                 placeholder="data-testid, data-test-id, data-test">
+          <span id="locator-test-hooks-hint"
+                class="recorder-options__hint"
+                data-test-id="locator-test-hooks-hint">
+            Comma-separated attribute names treated as explicit test hooks, in priority order.
+          </span>
+        </div>
+
+        <div class="recorder-options__control-row">
+          <button type="button"
+                  id="locator-retarget-switch"
+                  class="switch"
+                  data-test-id="locator-retarget-switch"
+                  aria-checked="false"
+                  aria-describedby="locator-retarget-hint"
+                  role="switch">
+            <span class="switch__track">
+              <span class="switch__knob"></span>
+            </span>
+            <span class="switch__label">Record the control, not the inner element</span>
+          </button>
+        </div>
+        <span id="locator-retarget-hint"
+              class="recorder-options__hint"
+              data-test-id="locator-retarget-hint">
+          A click on an icon or a caption inside a button, link, or field is recorded against that control.
+        </span>
+
+        <div class="recorder-options__control-row">
+          <button type="button"
+                  id="locator-hot-testing-switch"
+                  class="switch"
+                  data-test-id="locator-hot-testing-switch"
+                  aria-checked="false"
+                  aria-describedby="locator-hot-testing-hint"
+                  role="switch">
+            <span class="switch__track">
+              <span class="switch__knob"></span>
+            </span>
+            <span class="switch__label">Keep testing locators while recording</span>
+          </button>
+        </div>
+        <span id="locator-hot-testing-hint"
+              class="recorder-options__hint"
+              data-test-id="locator-hot-testing-hint">
+          Recorded locators are tested again after the page settles and whenever the same page loads again. A locator that stops finding its element is replaced by one that still does.
+        </span>
+      </section>
+
       <section class="recorder-options__actions"
                data-test-id="settings-actions-section"
                aria-label="Settings actions">

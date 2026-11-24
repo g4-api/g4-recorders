@@ -6,31 +6,27 @@
  * approved scheme:
  *   controlType  <- ARIA role or tag name
  *   automationId <- id or data-test-id
- *   name         <- accessible name (aria-label, labelledby, alt, title, or text)
+ *   name         <- accessible name (labelledby, aria-label, <label>, alt, title, or text)
  *   className    <- class attribute
  *   bounds       <- getBoundingClientRect
  * UIA-only fields are left at their contract defaults by the contract builder.
  *
+ * The chain locator and the ranked locator list of the trigger node come from the candidate
+ * engine (locator-candidates.js), so a recorded event and an on-demand peek describe an element
+ * with the same verified locators.
+ *
  * @remarks
  * Attached to the shared `globalThis.g4Recorder` namespace (see constants.js). Loaded
- * as a content script in every frame. Depends on the contract, locator, and DOM context
- * modules, which are listed before it in the manifest content-script order.
+ * as a content script in every frame. Depends on the contract, locator, accessibility,
+ * candidate and DOM context modules, which are listed before it in the manifest order.
  */
 (function initializeDomMapperModule(globalScope) {
     // Create or reuse the single extension namespace shared across every context.
     const namespace = globalScope.g4Recorder = globalScope.g4Recorder || {};
 
-    // Pull the sibling modules this mapper builds on. Both are loaded earlier in the
+    // Pull the sibling modules this mapper builds on. All are loaded earlier in the
     // content-script list, so they are guaranteed to be present here.
-    const contract = namespace.contract;
-    const locator = namespace.locator;
-
-    // Maximum number of input characters retained in node properties. Long values are
-    // truncated so a single field cannot bloat the payload sent over the socket.
-    const MAXIMUM_VALUE_PROPERTY_LENGTH = 256;
-
-    // Matches any run of whitespace, used to collapse multi-line text into one line.
-    const WHITESPACE_PATTERN = /\s+/g;
+    const { accessibility, contract, locator, locatorCandidates } = namespace;
 
     /**
      * Builds a chain (trigger node plus ancestors) for a recorded interaction.
@@ -46,10 +42,21 @@
      * @param {object|null} options.point The trigger point, or null when not applicable.
      * @param {object|null} [options.domContextOptions] The DOM context limits ({ ancestorLevels,
      *   maximumKilobytes }) when the trigger node should carry a DOM context, otherwise null.
+     * @param {object|null} [options.locatorSettings] The locator settings ({ maximumTextLength,
+     *   preference, testHookAttributes }). When null the chain carries the absolute XPath only.
+     * @param {Element|null} [options.originalElement] The raw event target when `element` is the
+     *   actionable ancestor it was resolved to, otherwise null.
      * @returns {object} The chain in contract shape.
      */
     function newChainFromElement(options) {
-        const { element, trigger, point, domContextOptions = null } = options;
+        const {
+            element,
+            trigger,
+            point,
+            domContextOptions = null,
+            locatorSettings = null,
+            originalElement = null
+        } = options;
 
         // Collect the trigger element and each ancestor element up to the root so the
         // path can be built from the bottom up, matching the desktop recorder.
@@ -78,13 +85,33 @@
             Object.assign(path[0].properties, domContext);
         }
 
+        // Resolve the ranked, verified locators of the target; without settings there are none.
+        const locatorResult = locatorSettings
+            ? locatorCandidates.getLocatorCandidates({ element, settings: locatorSettings })
+            : null;
+
+        // Publish the locators on the trigger node, next to the other web details of the target.
+        const isLocatorPublishable = Boolean(locatorResult) && path.length > 0;
+
+        if (isLocatorPublishable) {
+            const locatorProperties = newLocatorProperties({ locatorResult, originalElement });
+
+            Object.assign(path[0].properties, locatorProperties);
+        }
+
+        // The best XPath becomes the chain locator; the absolute path is the fallback.
+        const isLocatorResolved = Boolean(locatorResult) && Boolean(locatorResult.locator);
+        const chainLocator = isLocatorResolved
+            ? locatorResult.locator
+            : locator.getAbsoluteXpath(element);
+
         // The top window node is the final node in the bottom-up path, when present.
         const topWindow = path.length > 0
             ? path[path.length - 1]
             : null;
 
         return contract.newChain({
-            locator: locator.getAbsoluteXpath(element),
+            locator: chainLocator,
             path,
             point,
             topWindow,
@@ -111,7 +138,7 @@
 
         // Resolve the friendly control type and accessible name once for reuse below.
         const controlType = getControlType(element);
-        const accessibleName = getAccessibleName(element);
+        const accessibleName = accessibility.getAccessibleName(element);
 
         // Read geometry from the live layout box; detached nodes yield a zero rectangle.
         const boundingRectangle = element.getBoundingClientRect();
@@ -133,45 +160,6 @@
             name: accessibleName,
             properties: newNodeProperties(element)
         });
-    }
-
-    /**
-     * Resolves the accessible name of an element.
-     *
-     * @remarks
-     * Compute-only helper. Resolution order follows common accessibility practice:
-     * aria-label, then aria-labelledby text, then alt/title/value, then trimmed text
-     * content. The first non-empty source wins.
-     *
-     * @param {Element} element The element whose name is needed.
-     * @returns {string} The accessible name, or an empty string when none is found.
-     */
-    function getAccessibleName(element) {
-        // An explicit aria-label always takes precedence over derived names.
-        const ariaLabel = element.getAttribute && element.getAttribute("aria-label");
-
-        if (ariaLabel) {
-            return ariaLabel.trim();
-        }
-
-        // aria-labelledby points at other elements whose text forms the name.
-        const labelledByText = getLabelledByText(element);
-
-        if (labelledByText) {
-            return labelledByText;
-        }
-
-        // Common attribute-based names cover images, buttons, and titled controls.
-        const attributeName = getFirstAttributeValue(element, ["alt", "title", "placeholder"]);
-
-        if (attributeName) {
-            return attributeName.trim();
-        }
-
-        // Fall back to the visible text, collapsed and trimmed to a single line.
-        const textContent = (element.textContent || "").replace(WHITESPACE_PATTERN, " ").trim();
-
-        return textContent.slice(0, MAXIMUM_VALUE_PROPERTY_LENGTH);
     }
 
     /**
@@ -274,37 +262,37 @@
     }
 
     /**
-     * Resolves the combined text referenced by an element's aria-labelledby attribute.
+     * Builds the locator properties placed on the trigger node.
      *
      * @remarks
-     * Compute-only helper. Returns an empty string when the attribute is absent or none
-     * of the referenced ids resolve, so callers can treat it as "no labelledby name".
+     * Compute-only helper. The identifier lets a later hot-test verdict find this exact event
+     * again, so it is created here, once, with the locators it belongs to. The optional fields
+     * are added only when they apply, so an ordinary element does not carry empty values.
      *
-     * @param {Element} element The element whose aria-labelledby should be resolved.
-     * @returns {string} The combined referenced text, trimmed.
+     * @param {object} options Property inputs.
+     * @param {object} options.locatorResult The candidate engine result for the target.
+     * @param {Element|null} options.originalElement The raw event target, when retargeted.
+     * @returns {object} The properties ({ locatorId, locatorStrength, locators, ... }).
      */
-    function getLabelledByText(element) {
-        // Without the attribute there is nothing to resolve.
-        const labelledBy = element.getAttribute && element.getAttribute("aria-labelledby");
+    function newLocatorProperties(options) {
+        const { locatorResult, originalElement } = options;
+        const properties = {
+            locatorId: globalScope.crypto.randomUUID(),
+            locatorStrength: locatorResult.locatorStrength,
+            locators: locatorResult.locators
+        };
 
-        if (!labelledBy) {
-            return "";
+        // An element inside a shadow root is reached through its hosts, one segment per level.
+        if (locatorResult.shadowPath) {
+            properties.shadowPath = locatorResult.shadowPath;
         }
 
-        // Each whitespace-separated id may reference an element contributing name text.
-        const ownerDocument = element.ownerDocument;
-        const referencedIds = labelledBy.split(/\s+/).filter(Boolean);
-        const referencedTexts = [];
+        // Keep the raw target so a client can still address the exact node the event landed on.
+        if (originalElement) {
+            properties.originalLocator = locator.getAbsoluteXpath(originalElement);
+        }
 
-        referencedIds.forEach((referencedId) => {
-            const referencedElement = ownerDocument && ownerDocument.getElementById(referencedId);
-
-            if (referencedElement) {
-                referencedTexts.push((referencedElement.textContent || "").trim());
-            }
-        });
-
-        return referencedTexts.join(" ").replace(WHITESPACE_PATTERN, " ").trim();
+        return properties;
     }
 
     /**
