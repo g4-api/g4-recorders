@@ -78,9 +78,11 @@
         alt: 86,
         ariaLabel: 95,
         cssAriaLabel: 66,
+        cssCustomTag: 70,
         cssId: 73,
         cssName: 68,
         cssPlaceholder: 64,
+        cssShadowTag: 45,
         cssStructure: 20,
         cssTestHook: 78,
         customTagName: 35,
@@ -124,6 +126,14 @@
         unique: "Unique",
         unverified: "Unverified"
     });
+
+    // The strategy name of the one candidate that addresses an element inside a shadow root: a
+    // CSS shadow path. The Hub recognises it by this name and writes it as the rule's locator.
+    const SHADOW_PATH_STRATEGY = "ShadowPath";
+
+    // Added to the rank of a working shadow path so it always leads the list of a shadow target,
+    // whose other candidates only address the host element.
+    const SHADOW_PATH_RANK_BONUS = 1000;
 
     // Roles whose name comes from their own content, so role plus text identifies them.
     const NAME_FROM_CONTENT_ROLES = [
@@ -179,9 +189,9 @@
      *
      * @remarks
      * Compute-only over the live DOM; the page is never changed. An element inside a shadow root
-     * cannot be reached by one locator, so it is described by a shadow path (the outermost host,
-     * then one CSS selector per shadow level) and the published locators are those of the host,
-     * which is the closest element a rule can address directly.
+     * cannot be reached by an XPath or a plain CSS selector, so its leading locator is a CSS
+     * shadow path (one selector per shadow level). The locators of the outermost host follow it,
+     * for a consumer that can only address an element of the document.
      *
      * @param {object} options Engine inputs.
      * @param {Element} options.element The element to locate.
@@ -230,12 +240,27 @@
      * Compute-only. Used when candidates are first built and again after a hot test changed a
      * verdict, so both paths rank identically. Broken locators sort last and can never be the
      * primary one while a working XPath exists. The primary locator is always an XPath, because
-     * XPath is the default locator type of a G4 rule.
+     * XPath is the default locator type of a G4 rule. For a target inside a shadow root that
+     * XPath addresses the host, and the working shadow path leads the list instead: it is the
+     * locator a rule uses, so the strength label describes it.
      *
      * @param {object[]} locators The candidates to rank.
      * @returns {object} The ranking ({ locator, locators, locatorStrength }).
      */
     function getLocatorRanking(locators) {
+        // Returns the value a locator is ordered by; higher sorts first. A working shadow path is
+        // lifted above every other candidate of its element, because it is the only one that
+        // addresses the element rather than its host.
+        const getRank = (candidate) => {
+            const effectiveScore = getEffectiveScore(candidate);
+            const isShadowPath = candidate.strategy === SHADOW_PATH_STRATEGY;
+            const isWorking = candidate.verdict !== VERDICTS.broken;
+
+            return isShadowPath && isWorking
+                ? effectiveScore + SHADOW_PATH_RANK_BONUS
+                : effectiveScore;
+        };
+
         // Tells whether two entries are the same locator: the same strategy and the same text.
         const testSameLocator = (left, right) => {
             const isSameStrategy = left.using === right.using;
@@ -244,10 +269,10 @@
             return isSameStrategy && isSameValue;
         };
 
-        // Order a copy by score, best first, so the caller's list is left untouched.
+        // Order a copy by rank, best first, so the caller's list is left untouched.
         const rankedLocators = locators
             .slice()
-            .sort((left, right) => getEffectiveScore(right) - getEffectiveScore(left));
+            .sort((left, right) => getRank(right) - getRank(left));
 
         // Remove duplicates, keeping the highest scored entry of each locator text.
         const uniqueLocators = [];
@@ -271,10 +296,28 @@
             ? getEffectiveScore(primaryCandidate)
             : BROKEN_SCORE;
 
+        // A shadow target is as strong as its shadow path. Without a working one a rule can only
+        // address the host, which is never better than Fair.
+        const shadowCandidates = uniqueLocators.filter(
+            (candidate) => candidate.strategy === SHADOW_PATH_STRATEGY
+        );
+        const workingShadowCandidate = shadowCandidates.find(
+            (candidate) => candidate.verdict !== VERDICTS.broken
+        );
+        const isHostOnly = shadowCandidates.length > 0 && !workingShadowCandidate;
+        const strengthScore = workingShadowCandidate
+            ? workingShadowCandidate.score
+            : primaryScore;
+        const strength = getStrength(strengthScore);
+        const isCapped = isHostOnly && strength === STRENGTHS.strong;
+        const locatorStrength = isCapped
+            ? STRENGTHS.fair
+            : strength;
+
         return {
             locator: primaryLocator,
             locators: uniqueLocators,
-            locatorStrength: getStrength(primaryScore)
+            locatorStrength
         };
     }
 
@@ -294,7 +337,11 @@
      */
     function testLocators(options) {
         const { element, locators } = options;
-        const root = element.getRootNode();
+
+        // Every published locator is evaluated from the document. For a target inside a shadow
+        // root only the shadow path reaches the element; the other locators address its host.
+        const hostElement = getOutermostHost(element);
+        const root = hostElement.getRootNode();
         let isChanged = false;
 
         // Upgrade every locator that survived the page's reaction to the action.
@@ -311,8 +358,13 @@
                 value: candidate.value
             });
 
+            // The shadow path must reach the element itself; every other locator reaches its host.
+            const expectedElement = candidate.strategy === SHADOW_PATH_STRATEGY
+                ? element
+                : hostElement;
+
             // A locator the action itself invalidated keeps its verdict; it is never demoted.
-            if (!testSingleMatch(matches, element)) {
+            if (!testSingleMatch(matches, expectedElement)) {
                 return candidate;
             }
 
@@ -334,7 +386,9 @@
      * present only when at least one locator resolves to a single element with the recorded
      * fingerprint. From then on that element is the reference: locators that reach it are Proven
      * and locators that do not are Broken. When no locator re-identifies the element the page is
-     * in another state and nothing is concluded.
+     * in another state and nothing is concluded. A target inside a shadow root whose shadow path
+     * stopped resolving is still looked for, by its fingerprint, below the host the other
+     * locators reach, so a broken shadow path is reported as Broken instead of going unnoticed.
      *
      * @param {object} options Test inputs.
      * @param {object} options.fingerprint The fingerprint captured at record time.
@@ -359,21 +413,30 @@
         });
 
         // The first match that carries the recorded fingerprint becomes the reference element.
-        const referenceElement = resolutions.find((resolvedElement) => {
+        const resolvedReference = resolutions.find((resolvedElement) => {
             const isResolved = resolvedElement !== null;
 
             return isResolved && testFingerprint(resolvedElement, fingerprint);
         });
+
+        // A shadow target whose shadow path no longer resolves is searched for below its host.
+        const referenceElement = resolvedReference
+            || getShadowReference({ fingerprint, locators, resolutions });
 
         // Without a recognised element the page is in another state, so nothing is concluded.
         if (!referenceElement) {
             return { isChanged: false, isElementPresent: false, locators };
         }
 
-        // Judge every locator against the reference element.
+        // Judge every locator against the reference element. For a target inside a shadow root
+        // only the shadow path reaches the element; the other locators must reach its host.
+        const referenceHost = getOutermostHost(referenceElement);
         let isChanged = false;
         const testedLocators = locators.map((candidate, index) => {
-            const verdict = resolutions[index] === referenceElement
+            const expectedElement = candidate.strategy === SHADOW_PATH_STRATEGY
+                ? referenceElement
+                : referenceHost;
+            const verdict = resolutions[index] === expectedElement
                 ? VERDICTS.proven
                 : VERDICTS.broken;
 
@@ -637,6 +700,26 @@
             });
         }
 
+        // A custom element is named by its author, and a page often holds exactly one of it,
+        // which makes the bare tag a stable handle for a web component host.
+        if (element.localName.includes("-")) {
+            drafts.push({
+                score: SCORES.cssCustomTag,
+                strategy: "CustomTag",
+                value: tagName
+            });
+        }
+
+        // Inside a shadow root the tree is one small component, where a control is often the only
+        // one of its tag. The bare tag then outlives a positional selector through re-renders.
+        if (testShadowRoot(root)) {
+            drafts.push({
+                score: SCORES.cssShadowTag,
+                strategy: "Tag",
+                value: tagName
+            });
+        }
+
         // The remaining naming attributes are qualified by the tag, so they stay specific.
         const attributeDrafts = [
             { attributeName: "name", score: SCORES.cssName, strategy: "Name" },
@@ -660,8 +743,11 @@
             }
         });
 
-        // Keep the best attribute selector that resolves to exactly the element.
-        const attributeCandidate = drafts.find(testUniqueSelector);
+        // Keep the best selector that resolves to exactly the element, strongest draft first.
+        const rankedDrafts = drafts
+            .slice()
+            .sort((left, right) => right.score - left.score);
+        const attributeCandidate = rankedDrafts.find(testUniqueSelector);
 
         // The structural selector is always offered, as the CSS counterpart of the floor path.
         const structureDraft = {
@@ -748,6 +834,29 @@
         }
 
         return [newCandidate({ ...draft, strategy: draft.using, verdict: VERDICTS.unique })];
+    }
+
+    /**
+     * Returns the outermost shadow host of an element, or the element when it has none.
+     *
+     * @remarks
+     * Compute-only helper. A locator evaluated from the document can reach the outermost host of
+     * a shadow target at most, so the hot tests compare host locators against this element.
+     *
+     * @param {Element} element The element, inside or outside a shadow root.
+     * @returns {Element} The outermost host, or the element itself in a document tree.
+     */
+    function getOutermostHost(element) {
+        let currentElement = element;
+        let root = currentElement.getRootNode();
+
+        // Step out through every shadow level until the tree is a document.
+        while (testShadowRoot(root)) {
+            currentElement = root.host;
+            root = currentElement.getRootNode();
+        }
+
+        return currentElement;
     }
 
     /**
@@ -872,9 +981,10 @@
      *
      * @remarks
      * Compute-only. Walks out through every shadow level, recording one verified CSS selector per
-     * level, until the outermost host in the document is reached. The host's own candidates are
-     * published as the locators, and the strength is capped at Fair because a rule that targets
-     * the host does not address the inner element itself.
+     * level, until the outermost host in the document is reached. The segments are then joined
+     * into one CSS shadow path that addresses the element itself, verified from the document like
+     * any other candidate; it is as strong as its weakest segment. The host's own candidates
+     * follow it, so a consumer that cannot use a shadow path still has the host to act on.
      *
      * @param {Element} element The element inside a shadow root.
      * @param {object} settings The locator settings.
@@ -882,6 +992,7 @@
      */
     function getShadowCandidates(element, settings) {
         const innerSegments = [];
+        const segmentScores = [];
         let currentElement = element;
         let root = currentElement.getRootNode();
 
@@ -890,11 +1001,16 @@
             // Prefer a verified selector; the structural one is the floor inside a shadow tree.
             const context = newContext({ element: currentElement, root, settings });
             const cssCandidates = getCssCandidates(context);
-            const selector = cssCandidates.length > 0
+            const isVerified = cssCandidates.length > 0;
+            const selector = isVerified
                 ? cssCandidates[0].value
                 : locator.getCssSelector(currentElement);
+            const segmentScore = isVerified
+                ? cssCandidates[0].score
+                : SCORES.cssStructure;
 
             innerSegments.unshift({ using: LOCATOR_STRATEGIES.cssSelector, value: selector });
+            segmentScores.push(segmentScore);
 
             // Step out to the host and continue from the tree that contains it.
             currentElement = root.host;
@@ -904,21 +1020,122 @@
         // Locate the outermost host like any other document element.
         const hostResult = getLocatorCandidates({ element: currentElement, settings });
 
-        // Cap the strength at Fair: the locators address the host, not the inner element.
-        const isHostStrong = hostResult.locatorStrength === STRENGTHS.strong;
-        const locatorStrength = isHostStrong
-            ? STRENGTHS.fair
-            : hostResult.locatorStrength;
+        // Describe the walk level by level as well: the host's XPath, then one CSS selector per
+        // shadow level. This is published with the result whether or not the joined path verifies.
+        const shadowPath = [
+            { using: LOCATOR_STRATEGIES.xpath, value: hostResult.locator },
+            ...innerSegments
+        ];
 
+        // Join the host's best CSS selector and the inner segments into one shadow path, and keep
+        // it only when it resolves from the document to exactly the element.
+        const hostCandidate = hostResult.locators.find(
+            (candidate) => candidate.using === LOCATOR_STRATEGIES.cssSelector
+        );
+        const pathSegments = hostCandidate
+            ? [hostCandidate.value, ...innerSegments.map((segment) => segment.value)]
+            : [];
+        const pathValue = pathSegments.join(` ${locator.SHADOW_PATH_SEPARATOR} `);
+        const pathMatches = locator.findElements({
+            root: currentElement.getRootNode(),
+            using: LOCATOR_STRATEGIES.cssSelector,
+            value: pathValue
+        });
+        const isPathVerified = Boolean(hostCandidate) && testSingleMatch(pathMatches, element);
+
+        // Without a verified path a rule can only address the host, which is never better than Fair.
+        if (!isPathVerified) {
+            const isHostStrong = hostResult.locatorStrength === STRENGTHS.strong;
+            const locatorStrength = isHostStrong
+                ? STRENGTHS.fair
+                : hostResult.locatorStrength;
+
+            return {
+                locator: hostResult.locator,
+                locators: hostResult.locators,
+                locatorStrength,
+                shadowPath
+            };
+        }
+
+        // The path is as strong as its weakest segment, since every segment has to keep matching.
+        const shadowCandidate = newCandidate({
+            score: Math.min(hostCandidate.score, ...segmentScores),
+            strategy: SHADOW_PATH_STRATEGY,
+            using: LOCATOR_STRATEGIES.cssSelector,
+            value: pathValue,
+            verdict: VERDICTS.unique
+        });
+
+        // Rank the path together with the host's candidates, so it leads the list and its score
+        // sets the strength label.
         return {
-            locator: hostResult.locator,
-            locators: hostResult.locators,
-            locatorStrength,
-            shadowPath: [
-                { using: LOCATOR_STRATEGIES.xpath, value: hostResult.locator },
-                ...innerSegments
-            ]
+            ...getLocatorRanking([shadowCandidate, ...hostResult.locators]),
+            shadowPath
         };
+    }
+
+    /**
+     * Finds a shadow target by its fingerprint below the host its locators still reach.
+     *
+     * @remarks
+     * Compute-only. On a revisit the shadow path is the only locator that reaches a target inside
+     * a shadow root, so when it stops resolving nothing re-identifies the target directly. The
+     * host locators still name the component, though, and the target is somewhere inside it.
+     * Every shadow level below that host is searched for the recorded fingerprint, and exactly one
+     * match is accepted. None or several conclude nothing, as on any other revisit.
+     *
+     * @param {object} options Search inputs.
+     * @param {object} options.fingerprint The fingerprint captured at record time.
+     * @param {object[]} options.locators The locators recorded for the element.
+     * @param {Array<Element|null>} options.resolutions What each locator resolved to, by index.
+     * @returns {Element|null} The re-identified element, or null when it cannot be told apart.
+     */
+    function getShadowReference(options) {
+        const { fingerprint, locators, resolutions } = options;
+
+        // Only a shadow target has an element below the host, and a host must still resolve.
+        const isShadowTarget = locators.some(
+            (candidate) => candidate.strategy === SHADOW_PATH_STRATEGY
+        );
+        const hostIndex = locators.findIndex((candidate, index) => {
+            const isHostLocator = candidate.strategy !== SHADOW_PATH_STRATEGY;
+
+            return isHostLocator && resolutions[index] !== null;
+        });
+        const isSearchable = isShadowTarget && hostIndex >= 0;
+
+        if (!isSearchable) {
+            return null;
+        }
+
+        // Search every shadow level below the host for elements that carry the fingerprint.
+        const fingerprintMatches = [];
+        const pendingHosts = [resolutions[hostIndex]];
+
+        while (pendingHosts.length > 0) {
+            const shadowRoot = locator.getShadowRoot(pendingHosts.pop());
+            const descendants = shadowRoot
+                ? Array.from(shadowRoot.querySelectorAll("*"))
+                : [];
+
+            descendants.forEach((descendant) => {
+                // Compare the tag first, since it is free and rules out nearly every element.
+                const isSameTag = descendant.localName === fingerprint.tagName;
+
+                if (isSameTag && testFingerprint(descendant, fingerprint)) {
+                    fingerprintMatches.push(descendant);
+                }
+            });
+
+            // Any descendant may host a deeper shadow root of its own.
+            pendingHosts.push(...descendants);
+        }
+
+        // Exactly one match re-identifies the element; anything else concludes nothing.
+        return fingerprintMatches.length === 1
+            ? fingerprintMatches[0]
+            : null;
     }
 
     /**

@@ -47,7 +47,7 @@ The best XPath is the `chain.locator`. The whole list sits on the trigger node, 
 | `locatorStrength` | string | `Strong`, `Fair` or `Weak`: how stable the `chain.locator` is expected to be. |
 | `locatorId` | string | Identifies this event's locators, so a later [locator amendment](peek-and-observe.md#locator-amendments) can correct them. |
 | `originalLocator` | string | Only when the event was retargeted: the absolute XPath of the node the pointer landed on. |
-| `shadowPath` | array | Only for a target inside a shadow root: the XPath of the outermost host, then one CSS selector per shadow level. |
+| `shadowPath` | array | Only for a target inside a shadow root: the XPath of the outermost host, then one CSS selector per shadow level. See [Shadow DOM](#shadow-dom). |
 
 ### How a locator is built
 
@@ -101,7 +101,29 @@ The extension options page holds the settings in the **Locators** section: wheth
 
 ### Shadow DOM
 
-One locator cannot reach inside a shadow root, because XPath does not cross a shadow boundary. For a target inside an open shadow root the `chain.locator` and the `locators` describe the outermost host element, and `shadowPath` describes the way to the real target. The `locatorStrength` of such an event is never above `Fair`.
+No XPath or plain CSS selector reaches inside a shadow root, because neither crosses a shadow boundary. A target inside a shadow root is therefore addressed by a shadow path: one CSS selector per shadow level, joined with `>>>`.
+
+```text
+lab-user-card >>> lab-user-menu >>> button[aria-label="Open user menu"]
+```
+
+The first segment is found in the document. Every following segment is found inside the shadow root of the element before it. The G4 engine resolves a `CssSelector` rule with this value the same way on replay.
+
+For such a target the event carries three things:
+
+1. The shadow path is the first entry of `locators`, with `using` set to `CssSelector` and `strategy` set to `ShadowPath`. It addresses the target itself.
+2. The `chain.locator` and the other `locators` address the outermost host element. A consumer that cannot use a shadow path still has the host to act on.
+3. The `shadowPath` property lists the same way as separate steps: the XPath of the outermost host, then one CSS selector per shadow level.
+
+The rules of a shadow path are:
+
+- **The separator counts only outside quoted strings.** In `[title='a >>> b']` the `>>>` is part of the attribute value.
+- **Every segment but the last resolves to its first match.** The last segment may match several elements.
+- **A selector list is not split per path.** Write one path per locator; `a >>> b, c >>> d` is not two paths.
+- **Inside a shadow root only CSS is used.** A segment is built from a test hook, an id, a `name`, an `aria-label`, a `placeholder`, a unique tag, or the position in the shadow tree.
+- **The path is as strong as its weakest segment.** The `locatorStrength` of the event describes the shadow path. When no shadow path can be verified, the event falls back to the host and is never above `Fair`.
+
+Open and closed shadow roots are recorded the same way. The page cannot read a closed root, but the extension can, through `chrome.dom.openOrClosedShadowRoot`. A click is followed into a closed root by the pointer position, and typing or a click fired from the keyboard by the focused element. Hot testing and the [locator test route](peek-and-observe.md#test-a-locator) both accept a shadow path.
 
 ## DOM context
 
@@ -154,7 +176,7 @@ All events can be toggled on the settings page.
 
 - Browser coordinates are viewport-relative (`clientX` and `clientY`). True screen coordinates are not available to web pages.
 - Locators are scoped to each frame document, so cross-frame interactions are recorded with the local path of the frame.
-- A target inside a closed shadow root is recorded as its host element, because the page does not expose the inner element.
+- A `submit` event does not leave a shadow root, so a form submitted inside one is recorded through the click or the typing that caused it, not as `SubmitForm`.
 - The candidate work is time-boxed per event. On a very large page the weaker candidates can be skipped; the `Absolute` locator is always present.
 - `chain.mouseOffset` is never set by the extension.
 

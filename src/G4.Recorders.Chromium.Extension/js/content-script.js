@@ -64,6 +64,10 @@
     let pointerClientY = 0;
     let pointerObservedAtMilliseconds = 0;
 
+    // The pointer events whose target is found by the pointer position. A click the keyboard
+    // fired carries no usable position, so it is resolved by focus instead.
+    const CLICK_EVENT_NAMES = ["click", "dblclick", "contextmenu"];
+
     // The events whose trigger node carries a DOM context: the element actions a client may want
     // to heal a locator for. Navigation, scroll, window, frame, and form events act on no element
     // a locator would target, so they are sent without one.
@@ -121,6 +125,52 @@
     }
 
     /**
+     * Resolves the real target of an event that was retargeted to a shadow host.
+     *
+     * @remarks
+     * Compute-only. The event path already exposes targets inside open shadow roots, but stops at
+     * the host of a closed one. From that host the walk goes down one shadow root at a time: by
+     * the pointer position for pointer events, and by focus for typing and keyboard clicks. It
+     * stops as soon as a root yields nothing deeper, so an event on the host itself stays there.
+     *
+     * @param {Element} element The target the event path reported.
+     * @param {Event} domEvent The DOM event being recorded.
+     * @returns {Element} The deepest target the extension can read.
+     */
+    function getDeepTarget(element, domEvent) {
+        // Decide how to look inside a root: where the pointer is, or what holds the focus.
+        const isClickEvent = CLICK_EVENT_NAMES.includes(domEvent.type);
+        const isKeyboardClick = isClickEvent && domEvent.detail === 0;
+        const isPositioned = typeof domEvent.clientX === "number"
+            && typeof domEvent.clientY === "number";
+        const isPointerWalk = isPositioned && !isKeyboardClick;
+
+        // Go down while the current element hosts a root with something deeper inside it.
+        let currentElement = element;
+        let shadowRoot = locator.getShadowRoot(currentElement);
+
+        while (shadowRoot) {
+            const innerElement = isPointerWalk
+                ? shadowRoot.elementFromPoint(domEvent.clientX, domEvent.clientY)
+                : shadowRoot.activeElement;
+            const isDeeper = Boolean(innerElement)
+                && innerElement !== currentElement
+                && innerElement.getRootNode() === shadowRoot;
+
+            // Stop when the root yields nothing of its own: no element, or one outside its tree.
+            if (!isDeeper) {
+                break;
+            }
+
+            // Step into the inner element and continue with the root it may host.
+            currentElement = innerElement;
+            shadowRoot = locator.getShadowRoot(currentElement);
+        }
+
+        return currentElement;
+    }
+
+    /**
      * Resolves the deepest real target of a DOM event.
      *
      * @remarks
@@ -143,12 +193,14 @@
         // Choose the first available candidate that is an element node.
         const candidateTarget = composedTarget || domEvent.target || document.documentElement;
 
-        // Use the candidate only when it is an element node.
+        // Use the candidate only when it is an element node. A closed shadow root hides its
+        // content from the event path, so the walk continues from the host into every root the
+        // extension can read.
         const isElementTarget = Boolean(candidateTarget)
             && candidateTarget.nodeType === Node.ELEMENT_NODE;
 
         if (isElementTarget) {
-            return candidateTarget;
+            return getDeepTarget(candidateTarget, domEvent);
         }
 
         // Wheel and scroll events can target the document; fall back to its root element.
@@ -250,8 +302,8 @@
      * @remarks
      * Compute-only. The record is what the background worker keeps to re-test the element on a
      * later load of this page: the locators, the fingerprint that recognises the element again,
-     * and this document's identity. An element inside a shadow root is left out, because its
-     * published locators describe the host, not the element itself.
+     * and this document's identity. An element inside a shadow root is included: its shadow path
+     * is tested against the element and its other locators against the host.
      *
      * @param {object} recording The built recording ({ element, recordingEvent, ... }).
      * @returns {object|null} The record, or null when hot testing does not apply.
@@ -271,9 +323,7 @@
         const properties = triggerNode
             ? triggerNode.properties
             : null;
-        const isTestable = Boolean(properties)
-            && Array.isArray(properties.locators)
-            && !properties.shadowPath;
+        const isTestable = Boolean(properties) && Array.isArray(properties.locators);
 
         if (!isTestable) {
             return null;
@@ -653,10 +703,19 @@
      * @returns {void}
      */
     function onTypingBlur(domEvent) {
-        // Commit only when the field losing focus is the one currently being tracked.
-        const element = getEventTarget(domEvent);
+        // Without a tracked field there is nothing to commit.
+        if (!pendingTypingElement) {
+            return;
+        }
 
-        if (pendingTypingElement && pendingTypingElement === element) {
+        // Commit only when the field losing focus is the one currently being tracked. For a field
+        // inside a closed shadow root the event reports the host, and by now the root no longer
+        // has a focused element to walk to, so a host of the tracked field counts as that field.
+        const element = getEventTarget(domEvent);
+        const isTrackedField = pendingTypingElement === element;
+        const isTrackedHost = testShadowHost(element, pendingTypingElement);
+
+        if (isTrackedField || isTrackedHost) {
             sendPendingTyping();
         }
     }
@@ -1013,10 +1072,10 @@
     }
 
     /**
-     * Resolves the deepest active element visible through open shadow roots.
+     * Resolves the deepest active element, through open and closed shadow roots.
      *
      * @remarks
-     * Compute-only. Closed shadow roots remain intentionally opaque because the page does not expose them.
+     * Compute-only. Closed shadow roots are entered through the extension API that reads them.
      *
      * @returns {Element|null} The focused element owned by this document, or null when the document lacks focus.
      */
@@ -1026,10 +1085,20 @@
         }
 
         let element = document.activeElement;
+        let shadowRoot = locator.getShadowRoot(element);
 
-        // Descend through every exposed shadow-root focus boundary to recover the actual interactive control.
-        while (element && element.shadowRoot && element.shadowRoot.activeElement) {
-            element = element.shadowRoot.activeElement;
+        // Descend through every shadow-root focus boundary, open or closed, to recover the actual
+        // interactive control.
+        while (shadowRoot) {
+            const focusedElement = shadowRoot.activeElement;
+
+            // A root without a focused element is where the focus stops.
+            if (!focusedElement) {
+                break;
+            }
+
+            element = focusedElement;
+            shadowRoot = locator.getShadowRoot(element);
         }
 
         return element && element.nodeType === Node.ELEMENT_NODE
@@ -1038,7 +1107,7 @@
     }
 
     /**
-     * Resolves the deepest element at viewport-relative coordinates, including open shadow roots.
+     * Resolves the deepest element at viewport-relative coordinates, through open and closed shadow roots.
      *
      * @param {number} clientX The horizontal coordinate in this frame's viewport.
      * @param {number} clientY The vertical coordinate in this frame's viewport.
@@ -1046,21 +1115,65 @@
      */
     function resolveElementFromPoint(clientX, clientY) {
         let element = document.elementFromPoint(clientX, clientY);
+        let shadowRoot = locator.getShadowRoot(element);
 
-        // Reapply the same viewport point inside open shadow roots until no deeper element is exposed.
-        while (element && element.shadowRoot && typeof element.shadowRoot.elementFromPoint === "function") {
-            const shadowElement = element.shadowRoot.elementFromPoint(clientX, clientY);
+        // Reapply the same viewport point inside every shadow root, open or closed, until no
+        // deeper element is exposed.
+        while (shadowRoot) {
+            const shadowElement = shadowRoot.elementFromPoint(clientX, clientY);
+            const isDeeper = Boolean(shadowElement)
+                && shadowElement !== element
+                && shadowElement.getRootNode() === shadowRoot;
 
-            if (!shadowElement || shadowElement === element) {
+            // Stop when the root yields nothing of its own: no element, or one outside its tree.
+            if (!isDeeper) {
                 break;
             }
 
+            // Step into the inner element and continue with the root it may host.
             element = shadowElement;
+            shadowRoot = locator.getShadowRoot(element);
         }
 
         return element && element.nodeType === Node.ELEMENT_NODE
             ? element
             : null;
+    }
+
+    /**
+     * Tests whether an element is a shadow host of another element, at any depth.
+     *
+     * @remarks
+     * Compute-only helper. Walks out from the inner element one shadow root at a time, so it also
+     * recognises the outer host of a control nested several shadow levels deep.
+     *
+     * @param {Element} hostElement The possible host.
+     * @param {Element} innerElement The element that may live inside the host's shadow tree.
+     * @returns {boolean} True when the inner element is inside a shadow root the host owns.
+     */
+    function testShadowHost(hostElement, innerElement) {
+        // Returns the host of the shadow tree an element lives in, or null in any other tree.
+        const getTreeHost = (element) => {
+            const root = element.getRootNode();
+            const isShadowTree = Boolean(root) && Boolean(root.host);
+
+            return isShadowTree
+                ? root.host
+                : null;
+        };
+
+        // Step out through every shadow level, comparing each host on the way.
+        let currentHost = getTreeHost(innerElement);
+
+        while (currentHost) {
+            if (currentHost === hostElement) {
+                return true;
+            }
+
+            currentHost = getTreeHost(currentHost);
+        }
+
+        return false;
     }
 
     /**

@@ -123,24 +123,72 @@
     }
 
     /**
-     * Records the shadow-DOM case, which is described by a shadow path instead of one locator.
+     * Collects the marked lab cases that live inside open shadow roots, at any depth.
      *
-     * @param {Window} labWindow The lab frame's window.
-     * @returns {object} The shadow record ({ changes, shadowPath, strength }).
+     * @remarks
+     * Compute-only. A document query cannot see into a shadow tree, so the trees are walked one
+     * host at a time. Closed shadow roots are not readable from a page script and are skipped;
+     * they are covered by recording with the extension, which can read them.
+     *
+     * @param {Document|ShadowRoot} root The tree to search.
+     * @returns {Element[]} The marked elements found inside shadow roots below the tree.
      */
-    function getShadowRecord(labWindow) {
-        // Reach the button through its host, since a document query cannot see into a shadow tree.
-        const { locatorCandidates } = labWindow.g4Recorder;
-        const shadowHost = labWindow.document.getElementById("lab-shadow-host");
-        const shadowButton = shadowHost.shadowRoot.querySelector("button");
+    function getShadowCaseElements(root) {
+        const caseElements = [];
 
-        // Build its result exactly as the extension does for an event inside a shadow root.
-        const result = locatorCandidates.getLocatorCandidates({
-            element: shadowButton,
-            settings: LOCATOR_SETTINGS
+        // Enter every open shadow root below this tree and collect its marked cases.
+        root.querySelectorAll("*").forEach((element) => {
+            // An element without an open shadow root has no tree to enter.
+            if (!element.shadowRoot) {
+                return;
+            }
+
+            // Take the cases of this tree first, then those of the trees nested inside it.
+            caseElements.push(
+                ...element.shadowRoot.querySelectorAll("[data-g4-case]"),
+                ...getShadowCaseElements(element.shadowRoot)
+            );
         });
 
-        return { changes: {}, shadowPath: result.shadowPath, strength: result.locatorStrength };
+        return caseElements;
+    }
+
+    /**
+     * Records the shadow-DOM cases, each addressed by one CSS shadow path.
+     *
+     * @remarks
+     * Compute-only. Each record is built exactly as the extension builds it for an event inside
+     * a shadow root: the candidate engine returns the shadow path as its leading candidate.
+     *
+     * @param {Window} labWindow The lab frame's window.
+     * @returns {object[]} One record per case ({ caseName, changes, locator, strength }).
+     */
+    function getShadowRecords(labWindow) {
+        const { locatorCandidates } = labWindow.g4Recorder;
+
+        return getShadowCaseElements(labWindow.document).map((caseElement) => {
+            // Build the locators exactly as the extension does for an event on that control.
+            const result = locatorCandidates.getLocatorCandidates({
+                element: caseElement,
+                settings: LOCATOR_SETTINGS
+            });
+
+            // Keep the shadow path only. A case without one records an empty locator, which the
+            // test reports as a failed shadow case.
+            const shadowCandidate = result.locators.find(
+                (candidate) => candidate.strategy === "ShadowPath"
+            );
+            const shadowLocator = shadowCandidate
+                ? shadowCandidate.value
+                : "";
+
+            return {
+                caseName: caseElement.dataset.g4Case,
+                changes: {},
+                locator: shadowLocator,
+                strength: result.locatorStrength
+            };
+        });
     }
 
     /**
@@ -152,7 +200,8 @@
      * that has been changed in all five ways at once.
      *
      * @param {Window} labWindow The lab frame's window, with the extension modules loaded.
-     * @returns {object} The result ({ cases, isPassed, shadow, summary }).
+     * @returns {object} The result ({ cases, isPassed, shadow, summary }); `shadow` lists the
+     *   shadow-DOM cases.
      */
     function invokeLabTest(labWindow) {
         // Tells whether a record kept one of its two locators through every page change.
@@ -164,7 +213,10 @@
 
         // Record every case in the initial state of the page, before anything changes.
         const caseRecords = getCaseRecords(labWindow);
-        const shadowRecord = getShadowRecord(labWindow);
+        const shadowRecords = getShadowRecords(labWindow);
+
+        // Check, while the page is still unchanged, that a revisit notices a broken shadow path.
+        const isRevisitDetectionPassed = testRevisitDetection(labWindow);
 
         // Apply each page change, then re-test every recorded locator against the changed page.
         PAGE_CHANGES.forEach((pageChange) => {
@@ -195,7 +247,14 @@
                 };
             });
 
-            shadowRecord.changes[pageChange.name] = testShadowPath(labWindow, shadowRecord.shadowPath);
+            // A shadow case is found through its one shadow path, evaluated from the document.
+            shadowRecords.forEach((record) => {
+                record.changes[pageChange.name] = testShadowPath({
+                    caseName: record.caseName,
+                    labWindow,
+                    value: record.locator
+                });
+            });
         });
 
         // A case passes when its locator survived every change and it was retargeted correctly.
@@ -207,8 +266,17 @@
 
             return !isCasePassed;
         });
-        const isShadowPassed = Object.values(shadowRecord.changes).every(Boolean);
-        const isPassed = failedRecords.length === 0 && isShadowPassed;
+
+        // Every shadow case must have a shadow path, and it must survive every change. A run
+        // that found no shadow case at all fails too, so the shadow check cannot pass empty.
+        const failedShadowRecords = shadowRecords.filter((record) => {
+            const isPathSurvivor = Object.values(record.changes).every(Boolean);
+            const isShadowCasePassed = record.locator.length > 0 && isPathSurvivor;
+
+            return !isShadowCasePassed;
+        });
+        const isShadowPassed = shadowRecords.length > 0 && failedShadowRecords.length === 0;
+        const isPassed = failedRecords.length === 0 && isShadowPassed && isRevisitDetectionPassed;
 
         // Count the survivors of both locator kinds, so the report shows what the engine buys.
         const legacySurvivors = caseRecords.filter((record) => testSurvival(record, "isLegacyFound"));
@@ -218,11 +286,14 @@
         return {
             cases: caseRecords,
             isPassed,
-            shadow: shadowRecord,
+            shadow: shadowRecords,
             summary: {
                 caseCount: caseRecords.length,
                 failedCases: failedRecords.map((record) => record.caseName),
+                failedShadowCases: failedShadowRecords.map((record) => record.caseName),
+                isRevisitDetectionPassed,
                 isShadowPassed,
+                shadowCaseCount: shadowRecords.length,
                 legacySurvivorCount: legacySurvivors.length,
                 locatorSurvivorCount: locatorSurvivors.length,
                 strongCount: strongRecords.length
@@ -288,33 +359,84 @@
     }
 
     /**
-     * Tests whether the recorded shadow path still leads to the shadow button.
+     * Tests whether the revisit test reports a broken shadow path as Broken.
      *
-     * @param {Window} labWindow The lab frame's window.
-     * @param {object[]} shadowPath The recorded path (host XPath, then one CSS selector per level).
-     * @returns {boolean} True when the path resolves to the marked shadow button.
+     * @remarks
+     * Compute-only. Takes the locators the engine records for a control inside a shadow root and
+     * replaces the shadow path with one that no longer matches, the way a renamed attribute
+     * would break it. The revisit test must still recognise the control below its host, mark the
+     * shadow path Broken, and mark the host locators Proven.
+     *
+     * @param {Window} labWindow The lab frame's window, with the extension modules loaded.
+     * @returns {boolean} True when the broken shadow path is detected and nothing else is blamed.
      */
-    function testShadowPath(labWindow, shadowPath) {
-        // The first segment must resolve to one host that still carries a shadow tree.
-        const hosts = labWindow.g4Recorder.locator.findElements({
-            root: labWindow.document,
-            using: "Xpath",
-            value: shadowPath[0].value
+    function testRevisitDetection(labWindow) {
+        const { locatorCandidates } = labWindow.g4Recorder;
+
+        // Record the control exactly as the extension does for an event inside a shadow root.
+        const caseElement = getShadowCaseElements(labWindow.document).find(
+            (element) => element.dataset.g4Case === "shadow-card-button"
+        );
+        const result = locatorCandidates.getLocatorCandidates({
+            element: caseElement,
+            settings: LOCATOR_SETTINGS
         });
-        const isHostResolved = hosts.length === 1 && Boolean(hosts[0].shadowRoot);
 
-        if (!isHostResolved) {
+        // Break only the shadow path, leaving every host locator as it was recorded.
+        const brokenPath = 'lab-user-card >>> button[name="renamed-on-the-next-release"]';
+        const recordedLocators = result.locators.map((candidate) => {
+            const isShadowPath = candidate.strategy === "ShadowPath";
+
+            return isShadowPath
+                ? { ...candidate, value: brokenPath }
+                : candidate;
+        });
+
+        // Run the revisit test against the unchanged page, as a later load of it would.
+        const outcome = locatorCandidates.testLocatorsOnRevisit({
+            fingerprint: locatorCandidates.getElementFingerprint(caseElement),
+            locators: recordedLocators,
+            root: labWindow.document
+        });
+        const shadowVerdicts = outcome.locators
+            .filter((candidate) => candidate.strategy === "ShadowPath")
+            .map((candidate) => candidate.verdict);
+        const hostVerdicts = outcome.locators
+            .filter((candidate) => candidate.strategy !== "ShadowPath")
+            .map((candidate) => candidate.verdict);
+        const isShadowPathBroken = shadowVerdicts.length === 1 && shadowVerdicts[0] === "Broken";
+        const isHostProven = hostVerdicts.length > 0
+            && hostVerdicts.every((verdict) => verdict === "Proven");
+
+        return outcome.isElementPresent && isShadowPathBroken && isHostProven;
+    }
+
+    /**
+     * Tests whether a recorded shadow path still leads to its marked lab case.
+     *
+     * @remarks
+     * Compute-only. The path is evaluated from the document by the extension's own evaluator,
+     * which walks one shadow root per segment the same way the G4 engine does on replay.
+     *
+     * @param {object} options Test inputs ({ caseName, labWindow, value }).
+     * @returns {boolean} True when exactly one element matches and it carries the case marker.
+     */
+    function testShadowPath(options) {
+        const { caseName, labWindow, value } = options;
+
+        // Resolve the path from the document with the extension's own evaluator, the way a replay would.
+        const matches = labWindow.g4Recorder.locator.findElements({
+            root: labWindow.document,
+            using: "CssSelector",
+            value
+        });
+
+        // A path that matches nothing or several elements no longer identifies the case.
+        if (matches.length !== 1) {
             return false;
         }
 
-        // The second segment must resolve to one element inside that tree: the marked button.
-        const innerMatches = hosts[0].shadowRoot.querySelectorAll(shadowPath[1].value);
-
-        if (innerMatches.length !== 1) {
-            return false;
-        }
-
-        return innerMatches[0].dataset.g4Case === "shadow-button";
+        return matches[0].dataset.g4Case === caseName;
     }
 
     // Start when the whole page, including the lab frame, has loaded.

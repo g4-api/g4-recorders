@@ -218,7 +218,7 @@
        *
        * @remarks
        * Owns the application root's content. Every call replaces all lab nodes with new ones, as
-       * a client-side framework does on a re-render, and builds the shadow tree again because a
+       * a client-side framework does on a re-render, and builds the shadow trees again because a
        * shadow root does not survive the replacement of its host.
        *
        * @returns {void}
@@ -243,6 +243,31 @@
         const shadowRoot = shadowHost.attachShadow({ mode: "open" });
 
         shadowRoot.innerHTML = `<button type="button" data-g4-case="shadow-button">Shadow action</button>`;
+
+        // Build a web component with a second component nested inside its shadow tree, so a
+        // control can sit two shadow levels deep behind hosts that have no id at all.
+        const cardRoot = applicationRoot.querySelector("lab-user-card").attachShadow({ mode: "open" });
+
+        cardRoot.innerHTML = `
+          <button type="button" data-g4-case="shadow-card-button" name="follow-user">Follow user</button>
+          <lab-user-menu></lab-user-menu>`;
+
+        // Give the nested component its own shadow tree, one level below the card's.
+        const menuRoot = cardRoot.querySelector("lab-user-menu").attachShadow({ mode: "open" });
+
+        menuRoot.innerHTML = `
+          <button type="button" data-g4-case="shadow-nested-button" aria-label="Open user menu">Menu</button>`;
+
+        // Build a closed shadow tree, which page scripts and the automated lab test cannot read.
+        // The recorder extension can, so these two controls are for recording by hand.
+        const closedRoot = document.getElementById("lab-closed-host").attachShadow({ mode: "closed" });
+
+        closedRoot.innerHTML = `
+          <button type="button" data-g4-case="closed-button" name="closed-action">Closed action</button>
+          <input type="text"
+                 data-g4-case="closed-field"
+                 name="closed-field"
+                 placeholder="Closed field">`;
 
         // Bind the caption change to the fresh follow button.
         const followButton = applicationRoot.querySelector("[data-g4-case='follow-toggle']");
@@ -440,6 +465,8 @@
             </div>
             <div><div><div><span data-g4-case="plain-nested" data-g4-expect="weak"></span></div></div></div>
             <div id="lab-shadow-host" data-g4-case="shadow-host"></div>
+            <lab-user-card></lab-user-card>
+            <div id="lab-closed-host"></div>
           </section>`;
       }
 

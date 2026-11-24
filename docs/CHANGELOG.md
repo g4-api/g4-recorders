@@ -11,6 +11,7 @@ All notable user-visible changes to the G4 recorders are listed here. The format
 - Chromium element events carry a Base64 DOM context of the markup around the target on the trigger node (`domContext`, `domContextLength`), with settings in the extension options.
 - Chromium element events carry ranked, verified locators on the trigger node (`locators`, `locatorStrength`, `locatorId`, `shadowPath`, `originalLocator`). The recorder keeps testing them while recording and corrects a delivered event through the `ReceiveLocatorAmendment` broadcast.
 - The Chromium recorder host can test any locator against the live browser (`POST recorder/locator`).
+- A Chromium target inside a shadow root carries a CSS shadow path (`host >>> inner`) as its first locator, with the `ShadowPath` strategy. Open and closed shadow roots are recorded, including typed text inside a closed root.
 - A locator lab page (`recorder-locator-lab.html`) and its automated test (`src/G4.Recorders.Chromium.Extension.Tests`).
 - The SAP recorder host, runtime and release flow (40f3e8a).
 - A screenshot point conversion tool, and an updated `GetScreenshot` (d865e0b).

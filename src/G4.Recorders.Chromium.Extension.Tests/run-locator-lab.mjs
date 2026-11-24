@@ -160,7 +160,29 @@ function writeReport(result) {
     console.log(`Locators that survived every page change: ${summary.locatorSurvivorCount}`);
     console.log(`Legacy absolute paths that survived every page change: ${summary.legacySurvivorCount}`);
     console.log(`Strong locators: ${summary.strongCount}`);
-    console.log(`Shadow path survived: ${shadowText}`);
+    console.log(`Shadow cases: ${summary.shadowCaseCount}`);
+    console.log(`Shadow paths survived: ${shadowText}`);
+
+    // List every shadow case under its summary line, with the strength labels padded to the
+    // longest one ("Strong") so the case names line up.
+    const strengthLabelLength = "Strong".length;
+
+    result.shadow.forEach((record) => {
+        const strengthText = record.strength.padEnd(strengthLabelLength);
+
+        console.log(`    ${strengthText} ${record.caseName}: ${record.locator}`);
+    });
+
+    // Name the shadow cases that failed, and say whether a revisit notices a broken shadow path.
+    const failedShadowCasesText = summary.failedShadowCases.length === 0
+        ? "none"
+        : summary.failedShadowCases.join(", ");
+    const revisitDetectionText = summary.isRevisitDetectionPassed
+        ? "yes"
+        : "NO";
+
+    console.log(`Failed shadow cases: ${failedShadowCasesText}`);
+    console.log(`Broken shadow path detected on revisit: ${revisitDetectionText}`);
     console.log(`Failed required cases: ${failedCasesText}`);
     console.log(verdictText);
 }

@@ -156,6 +156,9 @@ The hub's CORS origin check must also allow the extension origin
   coordinates are not available to web pages.
 - Locators are scoped to each frame's own document; cross-frame interactions are
   recorded with the frame's local path.
+- A target inside a shadow root, open or closed, is addressed by a CSS shadow path
+  (`host >>> inner`). Closed roots are read through `chrome.dom.openOrClosedShadowRoot`, which
+  needs no extra permission.
 - The locator rules, strategies and verdicts are described in
   [docs/events/chromium-events.md](../../docs/events/chromium-events.md#locators).
 - The locator lab (`recorder-locator-lab.html` on the recorder host) and its automated test

@@ -39,6 +39,12 @@
         xpath: "Xpath"
     });
 
+    // Separates the segments of a shadow path inside one CSS selector: the first segment is found
+    // in the document and every following one inside the shadow root of the element before it.
+    // The token is not valid CSS, so it can never collide with a real selector. The G4 engine
+    // splits a CssSelector rule on the same token, with the same quoting rules.
+    const SHADOW_PATH_SEPARATOR = ">>>";
+
     // Values longer than this are never stable handles; they are data, not identity. The
     // generated-value patterns below only ever run on values within this length, which bounds
     // the work of their open-ended repetitions.
@@ -92,7 +98,8 @@
      * Compute-only. This is the single evaluator behind candidate verification, hot testing and
      * the on-demand locator test, so all three agree on what a locator matches. It mirrors the
      * W3C WebDriver algorithms: link text compares the trimmed rendered text of anchors, partial
-     * link text tests containment, and XPath is evaluated from the document. An invalid or
+     * link text tests containment, and XPath is evaluated from the document. A CSS selector may
+     * be a shadow path, which is walked one shadow root per segment. An invalid or
      * unsupported locator yields an empty list instead of throwing, because a broken candidate
      * must simply lose, never fail the recording.
      *
@@ -119,7 +126,7 @@
             }
 
             if (using === LOCATOR_STRATEGIES.cssSelector) {
-                return Array.from(root.querySelectorAll(value));
+                return findElementsByCss(root, value);
             }
 
             if (using === LOCATOR_STRATEGIES.tagName) {
@@ -293,6 +300,120 @@
     }
 
     /**
+     * Returns the shadow root an element hosts, whether it is open or closed.
+     *
+     * @remarks
+     * Compute-only. An open root is read from the element. A closed root is hidden from scripts,
+     * including content scripts, so it is read through the extension API made for exactly that
+     * (`chrome.dom.openOrClosedShadowRoot`). Outside an extension context, such as the lab test
+     * page, that API is absent and a closed root stays invisible. The browser's own internal roots
+     * (the parts of a native input) are never returned by either path.
+     *
+     * @param {Element} element The possible shadow host.
+     * @returns {ShadowRoot|null} The shadow root, or null when the element hosts none.
+     */
+    function getShadowRoot(element) {
+        // Only an element can host a shadow root.
+        if (!testElementNode(element)) {
+            return null;
+        }
+
+        // An open root is exposed on the element itself.
+        if (element.shadowRoot) {
+            return element.shadowRoot;
+        }
+
+        // A closed root needs the extension API, which accepts HTML elements only.
+        const extensionDom = globalScope.chrome
+            ? globalScope.chrome.dom
+            : null;
+        const isApiAvailable = Boolean(extensionDom)
+            && typeof extensionDom.openOrClosedShadowRoot === "function";
+        const isReadable = isApiAvailable && element instanceof globalScope.HTMLElement;
+
+        if (!isReadable) {
+            return null;
+        }
+
+        // Treat any refusal of the API as "no shadow root", so a lookup never fails the recording.
+        try {
+            return extensionDom.openOrClosedShadowRoot(element) || null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Splits a CSS selector into the segments of a shadow path.
+     *
+     * @remarks
+     * Compute-only, one pass over the text. The separator counts only outside quoted strings, and
+     * a backslash escapes the character after it, so a separator inside an attribute value is
+     * literal text. Every segment is trimmed. A selector without the separator, or with an empty
+     * segment, is not a shadow path and is returned whole as its only segment. These rules are a
+     * contract with the G4 engine, which splits a CssSelector rule the same way.
+     *
+     * @param {string} selector The CSS selector, possibly a shadow path.
+     * @returns {string[]} The segments; a single entry when the selector is not a shadow path.
+     */
+    function getShadowSegments(selector) {
+        // Returns the quote that is open after one ordinary character: a closing quote ends the
+        // string, an opening quote starts one, and any other character leaves the state as it was.
+        const getNextQuote = (openQuote, character) => {
+            const isClosingQuote = character === openQuote;
+            const isQuote = character === '"' || character === "'";
+            const isOpeningQuote = openQuote === "" && isQuote;
+
+            if (isClosingQuote) {
+                return "";
+            }
+
+            return isOpeningQuote
+                ? character
+                : openQuote;
+        };
+
+        // The scan state: the closed segments, where the open one starts, the quote of the string
+        // being read (empty outside a string) and the position of the next character to read.
+        const segments = [];
+        let segmentStartIndex = 0;
+        let activeQuote = "";
+        let scanIndex = 0;
+
+        // Scan once, tracking quoted strings so only a separator outside them splits the text.
+        while (scanIndex < selector.length) {
+            const character = selector[scanIndex];
+            const isSeparator = activeQuote === ""
+                && selector.startsWith(SHADOW_PATH_SEPARATOR, scanIndex);
+
+            if (character === "\\") {
+                // Skip the escaped character, whatever it is.
+                scanIndex += 2;
+            } else if (isSeparator) {
+                // Close the segment before the separator and start the next one after it.
+                segments.push(selector.slice(segmentStartIndex, scanIndex).trim());
+                scanIndex += SHADOW_PATH_SEPARATOR.length;
+                segmentStartIndex = scanIndex;
+            } else {
+                // Enter a string on its opening quote and leave it on the matching closing quote.
+                activeQuote = getNextQuote(activeQuote, character);
+                scanIndex += 1;
+            }
+        }
+
+        // Close the last segment, which runs to the end of the text.
+        segments.push(selector.slice(segmentStartIndex).trim());
+
+        // Text without a separator, or with an empty segment, is not a shadow path; hand it back
+        // whole, so it is evaluated as the plain selector it is.
+        const isShadowPath = segments.length > 1 && segments.every((segment) => segment.length > 0);
+
+        return isShadowPath
+            ? segments
+            : [selector];
+    }
+
+    /**
      * Writes any text as an XPath 1.0 string literal.
      *
      * @remarks
@@ -462,6 +583,44 @@
     }
 
     /**
+     * Evaluates a CSS selector, walking a shadow path one shadow root per segment.
+     *
+     * @remarks
+     * Compute-only helper. Every segment but the last resolves to its first match, whose shadow
+     * root becomes the tree the next segment is searched in; the last segment returns all of its
+     * matches. A segment that matches nothing, or an element on the way that hosts no shadow
+     * root, yields no matches. This mirrors how the G4 engine resolves the same rule on replay.
+     *
+     * @param {Document|ShadowRoot} root The tree the first segment is searched in.
+     * @param {string} selector The CSS selector, possibly a shadow path.
+     * @returns {Element[]} The matched elements in document order.
+     */
+    function findElementsByCss(root, selector) {
+        // Split the selector: every segment but the last names a shadow host on the way down, and
+        // a plain selector is its own single target segment.
+        const segments = getShadowSegments(selector);
+        const hostSegments = segments.slice(0, -1);
+        const targetSegment = segments[segments.length - 1];
+        let searchRoot = root;
+
+        // Step into the shadow root of each host on the path.
+        for (const hostSegment of hostSegments) {
+            const host = searchRoot.querySelector(hostSegment);
+            const shadowRoot = getShadowRoot(host);
+
+            // A segment that matches nothing, or a match that hosts no shadow root, ends the walk.
+            if (!shadowRoot) {
+                return [];
+            }
+
+            searchRoot = shadowRoot;
+        }
+
+        // The last segment addresses the target, so every match in the innermost tree is returned.
+        return Array.from(searchRoot.querySelectorAll(targetSegment));
+    }
+
+    /**
      * Evaluates an XPath expression and returns the element nodes it selects.
      *
      * @remarks
@@ -576,12 +735,15 @@
     // Expose the locator API on the shared namespace.
     namespace.locator = {
         LOCATOR_STRATEGIES,
+        SHADOW_PATH_SEPARATOR,
         findElements,
         getAbsoluteXpath,
         getCssAttributeSelector,
         getCssEscaped,
         getCssSelector,
         getRenderedText,
+        getShadowRoot,
+        getShadowSegments,
         getXpathLiteral,
         getXpathNodeTest,
         getXpathStep,
