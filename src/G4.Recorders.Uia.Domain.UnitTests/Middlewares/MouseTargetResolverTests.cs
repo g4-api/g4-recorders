@@ -205,6 +205,31 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             Assert.AreEqual(2, repository.PointPeekCount);
         }
 
+        [TestMethod(DisplayName = "Verify that a paired release reports the point of its press and an orphaned " +
+            "release reports none")]
+        public void MouseTargetReleaseReportsPressPointTest()
+        {
+            // Arrange: press the left button at one point; the release lands at another.
+            var pressedChain = NewChain("pressed");
+            var fallbackChain = NewChain("fallback");
+            var repository = new FakeUiaRecorderRepository(pressedChain, fallbackChain);
+            var resolver = new MouseTargetResolver(repository);
+            resolver.ResolveDown(MouseButton.Left, x: 10, y: 20);
+
+            // Act: release twice; only the first release has a matching press.
+            var pairedResolution = resolver.ResolveUp(MouseButton.Left, x: 250, y: 90);
+            var orphanedResolution = resolver.ResolveUp(MouseButton.Left, x: 250, y: 90);
+
+            // Assert: the paired release carries the press point, so a drag can be measured from it.
+            Assert.AreEqual(10, pairedResolution.PressX);
+            Assert.AreEqual(20, pairedResolution.PressY);
+
+            // Assert: the orphaned release has no press, reports zero, and is marked as a fallback.
+            Assert.IsTrue(orphanedResolution.UsedFallback);
+            Assert.AreEqual(0, orphanedResolution.PressX);
+            Assert.AreEqual(0, orphanedResolution.PressY);
+        }
+
         private static UiaChainModel NewChain(string locator)
         {
             return new UiaChainModel

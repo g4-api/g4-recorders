@@ -18,7 +18,9 @@ namespace G4.Recorders.Uia.Domain.Middlewares
     internal sealed class MouseTargetResolver
     {
         #region *** Fields       ***
-        private readonly Dictionary<MouseButton, UiaChainModel> _pressedTargets = [];
+        // The press-time target of each held button, with the screen point of the press. The point lets the
+        // release tell a click from a drag and measure where the drag started.
+        private readonly Dictionary<MouseButton, (UiaChainModel Chain, int X, int Y)> _pressedTargets = [];
         private readonly IUiaRecorderRepository _repository;
         private readonly object _syncRoot = new();
         #endregion
@@ -68,10 +70,10 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             // Prefer the pre-dispatch hover chain so mouse-down UI mutations cannot change identity.
             var chain = request.CapturedChain ?? _repository.GetElementChain(request.X, request.Y);
 
-            // Replace stale state when a duplicate press arrives for the same button.
+            // Replace stale state when a duplicate press arrives for the same button, keeping the press point.
             lock (_syncRoot)
             {
-                _pressedTargets[request.Button] = chain;
+                _pressedTargets[request.Button] = (chain, request.X, request.Y);
             }
 
             return chain;
@@ -141,12 +143,16 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         /// </returns>
         internal MouseTargetResolution ResolveUp(MouseButton button, int x, int y)
         {
-            // Consume the retained target exactly once for the matching release.
+            // Consume the retained target exactly once for the matching release, with the point it was pressed at.
             lock (_syncRoot)
             {
-                if (_pressedTargets.Remove(button, out var chain))
+                if (_pressedTargets.Remove(button, out var pressed))
                 {
-                    return new MouseTargetResolution(chain, usedFallback: false);
+                    return new MouseTargetResolution(
+                        chain: pressed.Chain,
+                        usedFallback: false,
+                        pressX: pressed.X,
+                        pressY: pressed.Y);
                 }
             }
 
@@ -206,10 +212,27 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         /// </summary>
         /// <param name="chain">The resolved UIA target chain.</param>
         /// <param name="usedFallback">A value indicating that no matching press target existed.</param>
+        /// <remarks>
+        /// A fallback resolution has no matching press, so its press point is reported as zero on both axes.
+        /// </remarks>
         internal MouseTargetResolution(UiaChainModel chain, bool usedFallback)
+            : this(chain, usedFallback, pressX: 0, pressY: 0)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MouseTargetResolution"/> structure with the press point.
+        /// </summary>
+        /// <param name="chain">The resolved UIA target chain.</param>
+        /// <param name="usedFallback">A value indicating that no matching press target existed.</param>
+        /// <param name="pressX">The horizontal screen coordinate of the matching press.</param>
+        /// <param name="pressY">The vertical screen coordinate of the matching press.</param>
+        internal MouseTargetResolution(UiaChainModel chain, bool usedFallback, int pressX, int pressY)
         {
             Chain = chain;
             UsedFallback = usedFallback;
+            PressX = pressX;
+            PressY = pressY;
         }
         #endregion
 
@@ -218,6 +241,24 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         /// Gets the resolved UIA target chain.
         /// </summary>
         internal UiaChainModel Chain { get; }
+
+        /// <summary>
+        /// Gets the horizontal screen coordinate of the matching press.
+        /// </summary>
+        /// <remarks>
+        /// Meaningful only when <see cref="UsedFallback"/> is <see langword="false"/>; a release without a press has
+        /// no press point and reports zero.
+        /// </remarks>
+        internal int PressX { get; }
+
+        /// <summary>
+        /// Gets the vertical screen coordinate of the matching press.
+        /// </summary>
+        /// <remarks>
+        /// Meaningful only when <see cref="UsedFallback"/> is <see langword="false"/>; a release without a press has
+        /// no press point and reports zero.
+        /// </remarks>
+        internal int PressY { get; }
 
         /// <summary>
         /// Gets a value indicating whether coordinate-based fallback resolution was used.

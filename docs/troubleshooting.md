@@ -49,7 +49,7 @@ These messages are explained in [install-and-operate/troubleshooting.md](install
 - **Cause:** A key was pressed, but the recorder had no snapshot of the focused element from just before the press. The event is still sent, but without a resolved target. The message lists the `VirtualKey`, `ScanCode` and `Extended` values of the key.
 - **Check:** Look at which key is named, and note the time of the step.
 - **Fix:** The event is not dropped, but its target may be missing. If a step has no target in the flow, repeat it after clicking the field once.
-- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:810`
+- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:821`
 
 ### SetWindowFocus requires windowTitle and/or processName
 

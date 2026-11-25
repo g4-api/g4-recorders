@@ -34,6 +34,8 @@
         maxStackSizeInput: document.getElementById("max-stack-size-input"),
         hoverDwellField: document.getElementById("hover-dwell-field"),
         hoverDwellInput: document.getElementById("hover-dwell-input"),
+        dragThresholdField: document.getElementById("drag-threshold-field"),
+        dragThresholdInput: document.getElementById("drag-threshold-input"),
         domContextSwitch: document.getElementById("dom-context-switch"),
         domContextLevelsField: document.getElementById("dom-context-levels-field"),
         domContextLevelsInput: document.getElementById("dom-context-levels-input"),
@@ -85,6 +87,14 @@
             ? parsedDwellSeconds * 1000
             : DEFAULT_SETTINGS.hoverDwellMilliseconds;
 
+        // Normalise the drag threshold to a positive whole number of pixels, falling back to the
+        // default when the field is blank or invalid.
+        const parsedThreshold = parseInt(elements.dragThresholdInput.value, 10);
+        const isThresholdValid = Number.isFinite(parsedThreshold) && parsedThreshold > 0;
+        const dragThresholdPixels = isThresholdValid
+            ? parsedThreshold
+            : DEFAULT_SETTINGS.dragThresholdPixels;
+
         // Normalise the DOM context limits: levels may be zero (the target alone), the size must be
         // at least one kilobyte. Either falls back to its default when blank or invalid.
         const parsedLevels = parseInt(elements.domContextLevelsInput.value, 10);
@@ -119,6 +129,7 @@
             isRedactPasswordsEnabled: controls.redactPasswords.get(),
             maximumStackSize,
             hoverDwellMilliseconds,
+            dragThresholdPixels,
             isDomContextEnabled: controls.domContext.get(),
             domContextAncestorLevels,
             domContextMaximumKilobytes,
@@ -171,7 +182,7 @@
      * helpers drive each boolean switch and the number field by name.
      *
      * @returns {object} The control handles ({ autoConnect, redactPasswords, numberField, hoverDwellField,
-     *   domContext, domContextLevelsField, domContextSizeField, locatorTestHooksFirst,
+     *   dragThresholdField, domContext, domContextLevelsField, domContextSizeField, locatorTestHooksFirst,
      *   locatorRetarget, locatorHotTesting, eventSwitches }).
      */
     function newControls() {
@@ -191,6 +202,7 @@
             redactPasswords: formControls.newToggleSwitch(elements.redactPasswordsSwitch),
             numberField: formControls.newNumberField(elements.maxStackSizeField),
             hoverDwellField: formControls.newNumberField(elements.hoverDwellField),
+            dragThresholdField: formControls.newNumberField(elements.dragThresholdField),
             domContext: formControls.newToggleSwitch(elements.domContextSwitch),
             domContextLevelsField: formControls.newNumberField(elements.domContextLevelsField),
             domContextSizeField: formControls.newNumberField(elements.domContextSizeField),
@@ -277,6 +289,7 @@
         elements.hubUrlInput.value = settingsToShow.hubUrl;
         elements.maxStackSizeInput.value = String(settingsToShow.maximumStackSize);
         elements.hoverDwellInput.value = String(Math.round(settingsToShow.hoverDwellMilliseconds / 1000));
+        elements.dragThresholdInput.value = String(settingsToShow.dragThresholdPixels);
         elements.reconnectDelaysInput.value = settingsToShow.reconnectDelaysMilliseconds.join(", ");
         elements.domContextLevelsInput.value = String(settingsToShow.domContextAncestorLevels);
         elements.domContextSizeInput.value = String(settingsToShow.domContextMaximumKilobytes);

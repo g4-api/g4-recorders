@@ -196,7 +196,7 @@ The complete field lists, event names per recorder, peek routes and flow mapping
 | Type | Event names | `value` fields | Source |
 | --- | --- | --- | --- |
 | Keyboard | `Key Down`, `Key Up` | `scanCode`, `virtualKey`, `key`, `modifiers` (for example `Ctrl`, `Alt`, `Shift`), `targetSource` | `UiaEventCaptureService.cs` (`ResolveKeyboardEvent`) |
-| Mouse button | `Left Down`, `Left Up`, `Right Down`, `Right Up`, `Middle Down`, `Middle Up` | `x`, `y` (absolute pointer position) | `UiaEventCaptureService.cs` (`GetMouseEventName`) |
+| Mouse button | `Left Down`, `Left Up`, `Right Down`, `Right Up`, `Middle Down`, `Middle Up` | `x`, `y` (absolute pointer position); a `Left Up` that was a drag also carries `drag` | `UiaEventCaptureService.cs` (`GetMouseEventName`) |
 | Mouse wheel | `Wheel Up`, `Wheel Down`, `Wheel Left`, `Wheel Right` | `notches`, `x`, `y` | `UiaEventCaptureService.cs` (`ResolveMouseEvent`) |
 
 `targetSource` is one of `CapturedSnapshot`, `FocusFallback`, `MissingSnapshot`, `OrphanFallback`, `PairedRelease` or `RepeatedPress` (`KeyboardTargetResolver.cs`).

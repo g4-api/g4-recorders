@@ -1445,6 +1445,11 @@ async function onRecordingEventMessage(message, sender) {
     if (message.locatorRecord) {
         await addLocatorRecord(message.locatorRecord);
     }
+
+    // A drag and drop also files the record of its drop element, under that element's identifier.
+    if (message.targetLocatorRecord) {
+        await addLocatorRecord(message.targetLocatorRecord);
+    }
 }
 
 /**
@@ -2001,12 +2006,50 @@ async function setActiveFrameId(tabId, frameId) {
 }
 
 /**
+ * Replaces the locators of one recorded chain when a hot-test verdict addresses it.
+ *
+ * @remarks
+ * Mutates the chain in place. Shared by an event's own chain and a drop element's chain, so both
+ * are corrected by the same rule.
+ *
+ * @param {object|null} chain The chain to correct; events without an element have none.
+ * @param {object} verdict The verdict ({ locatorId, locator, locators, locatorStrength }).
+ * @returns {boolean} True when the chain was corrected.
+ */
+function setChainLocators(chain, verdict) {
+    // Resolve the trigger node's properties; a chain without a path has none.
+    const isPathPresent = Boolean(chain) && Array.isArray(chain.path);
+    const triggerNode = isPathPresent
+        ? chain.path[0]
+        : null;
+    const properties = triggerNode
+        ? triggerNode.properties
+        : null;
+
+    // Skip every chain the verdict does not address.
+    const isAddressed = Boolean(properties) && properties.locatorId === verdict.locatorId;
+
+    if (!isAddressed) {
+        return false;
+    }
+
+    // Replace the ranking as one unit, keeping the previous locator when none was supplied.
+    properties.locators = verdict.locators;
+    properties.locatorStrength = verdict.locatorStrength || properties.locatorStrength;
+    chain.locator = verdict.locator || chain.locator;
+
+    return true;
+}
+
+/**
  * Replaces the locators of the recorded events a hot-test verdict belongs to.
  *
  * @remarks
- * Mutates the given events in place. The verdict addresses an event through the locator
- * identifier on its trigger node, the first node of a Chromium chain. The chain locator, the
- * ranked list, and the strength label are replaced together so they can never disagree.
+ * Mutates the given events in place. The verdict addresses a chain through the locator
+ * identifier on its trigger node, the first node of a Chromium chain. An event holds its own
+ * chain, and a drag and drop also holds the chain of its drop element in value.target. The chain
+ * locator, the ranked list, and the strength label are replaced together so they can never
+ * disagree.
  *
  * @param {object[]} recordingEvents The events to search.
  * @param {object} verdict The verdict ({ locatorId, locator, locators, locatorStrength }).
@@ -2016,30 +2059,25 @@ function setEventLocators(recordingEvents, verdict) {
     let correctedCount = 0;
 
     recordingEvents.forEach((recordingEvent) => {
-        // Resolve the trigger node's properties; events without an element have none.
-        const chain = recordingEvent
+        // Collect the chains of the event: its own, and the drop element's for a drag and drop.
+        const ownChain = recordingEvent
             ? recordingEvent.chain
             : null;
-        const isPathPresent = Boolean(chain) && Array.isArray(chain.path);
-        const triggerNode = isPathPresent
-            ? chain.path[0]
+        const value = recordingEvent
+            ? recordingEvent.value
             : null;
-        const properties = triggerNode
-            ? triggerNode.properties
+        const isTargetPresent = Boolean(value) && Boolean(value.target);
+        const targetChain = isTargetPresent
+            ? value.target.chain
             : null;
+        const chains = [ownChain, targetChain];
 
-        // Skip every event the verdict does not address.
-        const isTargetEvent = Boolean(properties) && properties.locatorId === verdict.locatorId;
+        // Correct every chain the verdict addresses, and count the event once.
+        const correctedChains = chains.filter((chain) => setChainLocators(chain, verdict));
 
-        if (!isTargetEvent) {
-            return;
+        if (correctedChains.length > 0) {
+            correctedCount += 1;
         }
-
-        // Replace the ranking as one unit, keeping the previous locator when none was supplied.
-        properties.locators = verdict.locators;
-        properties.locatorStrength = verdict.locatorStrength || properties.locatorStrength;
-        chain.locator = verdict.locator || chain.locator;
-        correctedCount += 1;
     });
 
     return correctedCount;

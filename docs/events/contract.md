@@ -84,11 +84,20 @@ The model also holds an `Element` member, but it is marked `JsonIgnore` and is n
 
 | Type | Event names | `value` fields | Source |
 | --- | --- | --- | --- |
-| Keyboard | `Key Down`, `Key Up` | `scanCode`, `virtualKey`, `key`, `modifiers`, `targetSource` | `UiaEventCaptureService.cs:843-852` |
-| Mouse button | `Left Down`, `Left Up`, `Right Down`, `Right Up`, `Middle Down`, `Middle Up` | `x`, `y` | `UiaEventCaptureService.cs:1194-1203` |
-| Mouse wheel | `Wheel Up`, `Wheel Down`, `Wheel Left`, `Wheel Right` | `notches`, `x`, `y` | `UiaEventCaptureService.cs:908-947` |
+| Keyboard | `Key Down`, `Key Up` | `scanCode`, `virtualKey`, `key`, `modifiers`, `targetSource` | `UiaEventCaptureService.cs:854-863` |
+| Mouse button | `Left Down`, `Left Up`, `Right Down`, `Right Up`, `Middle Down`, `Middle Up` | `x`, `y` | `UiaEventCaptureService.cs:1244-1253` |
+| Mouse wheel | `Wheel Up`, `Wheel Down`, `Wheel Left`, `Wheel Right` | `notches`, `x`, `y` | `UiaEventCaptureService.cs:928-967` |
 
 `modifiers` is a list of `Ctrl`, `Alt` and `Shift` (`KeyboardModifierState.cs:19,24,29`).
+
+A `Left Up` that moved at least the drag threshold from its press also carries `drag`, also when the press landed on nothing UI Automation could resolve. The threshold is the larger of the Windows drag size (`SM_CXDRAG`, `SM_CYDRAG`) and 8 pixels. The event name and the chain stay those of a click, so a client that does not know drags still reads a click (`MouseDragResolver.cs`, `UiaDragModel.cs`).
+
+| `drag` member | Meaning |
+| --- | --- |
+| `startX`, `startY` | The screen point of the press. |
+| `sourceOffsetX`, `sourceOffsetY` | The press point, measured from the top-left corner of the dragged element. Left out when there is no dragged element or it had no usable bounds. |
+| `target` | The chain of the element under the release point, taken before the application handled the drop. `null` when it is the dragged element, one of its ancestors, one of its descendants, or nothing. |
+| `targetOffsetX`, `targetOffsetY` | The release point, measured from the top-left corner of `target`. Left out without a target. |
 
 `targetSource` says how the target element was found. It is one of `CapturedSnapshot`, `FocusFallback`, `MissingSnapshot`, `OrphanFallback`, `PairedRelease` or `RepeatedPress` (`KeyboardTargetResolver.cs:221-228`).
 

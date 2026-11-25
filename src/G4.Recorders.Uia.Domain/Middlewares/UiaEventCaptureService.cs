@@ -50,6 +50,10 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         [DllImport("user32.dll")]
         private static extern short GetKeyState(int nVirtKey);
 
+        // Retrieves a system metric, such as the drag size a pointer has to leave before a drag starts.
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetrics(int nIndex);
+
         // Retrieves the identifier of the thread that created the specified window.
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
@@ -133,6 +137,12 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         private const int WM_RBUTTONUP = 0x0205;   // Right mouse button released
 
         private const int VK_CAPITAL = 0x14;       // Caps Lock virtual key (toggle)
+
+        // The system metric that gives the width of the square a pointer leaves before Windows starts a drag.
+        private const int SM_CXDRAG = 68;
+
+        // The system metric that gives the height of the square a pointer leaves before Windows starts a drag.
+        private const int SM_CYDRAG = 69;
         #endregion
 
         #region *** Delegates    ***
@@ -451,8 +461,9 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 wParam,
                 timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
 
-            // Attach a pre-dispatch chain to button-down events using only immutable in-memory state.
-            if (TestMouseButtonDown(wParam))
+            // Attach a pre-dispatch chain to button-down events using only immutable in-memory state. A left release
+            // gets one too, so a drag can name its drop element as it was before the application handled the drop.
+            if (TestMouseButtonDown(wParam) || wParam == WM_LBUTTONUP)
             {
                 var snapshotResolution = _mouseTargetSnapshotStore.Resolve(new MouseTargetSnapshotRequest
                 {
@@ -870,7 +881,16 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             if (eventRecord.WParam != WM_MOUSEWHEEL && eventRecord.WParam != WM_MOUSEHWHEEL)
             {
                 // Resolve the target once so the chain and its derived pointer offset describe the same UIA element.
-                var chain = ResolveMouseTarget(eventRecord);
+                // A left release is resolved with its press point, so a drag can be told from a click.
+                var isLeftRelease = eventRecord.WParam == WM_LBUTTONUP;
+                var leftRelease = isLeftRelease
+                    ? ResolveMouseUp(MouseButton.Left, mouse.pt.X, mouse.pt.Y)
+                    : default;
+                var chain = isLeftRelease ? leftRelease.Chain : ResolveMouseTarget(eventRecord);
+
+                // Describe a left release that moved past the drag threshold as a drag, before the offset below
+                // changes the retained chain.
+                var drag = isLeftRelease ? NewMouseDrag(eventRecord, leftRelease) : null;
 
                 // Record the element-relative pointer offset on the chain itself so recording and grounding expose it
                 // in the same place. The click chain can be a retained instance, but each event is serialized and
@@ -881,18 +901,18 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 }
 
                 // Build a structured event model with absolute pointer coordinates; the element-relative offset now
-                // travels on the chain.
+                // travels on the chain. A drag adds its facts beside the coordinates and keeps the event name, so a
+                // consumer that does not know drags still reads a click.
+                object value = drag == null
+                    ? new { mouse.pt.X, mouse.pt.Y }
+                    : new { mouse.pt.X, mouse.pt.Y, Drag = drag };
                 var clickMessage = new UiaEventModel
                 {
                     Chain = chain,
                     Event = GetMouseEventName(eventRecord.WParam),
                     Timestamp = eventRecord.Timestamp,
                     Type = "Mouse",
-                    Value = new
-                    {
-                        mouse.pt.X,
-                        mouse.pt.Y
-                    }
+                    Value = value
                 };
 
                 // Broadcast the captured mouse click event to all connected SignalR clients.
@@ -956,6 +976,35 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             });
         }
 
+        // Describes a left-button release as a drag when it moved past the drag threshold from its press, or returns
+        // null for a click and for a release without a matching press. Only a drag hit-tests the release point: the
+        // hook-attached hover chain is used when it was accepted for that point, otherwise UIA is asked once.
+        private UiaDragModel NewMouseDrag(EventRecord eventRecord, MouseTargetResolution release)
+        {
+            // A release without its press has no start point, so it can only be a click. A press over nothing UI
+            // Automation resolved still has its point, so its drag is kept and replays between screen points.
+            var mouse = eventRecord.EventData.Mouse;
+            if (release.UsedFallback)
+            {
+                return null;
+            }
+
+            // Compare the distance with the larger of the system drag size and the recorder's floor.
+            var start = (release.PressX, release.PressY);
+            var end = (mouse.pt.X, mouse.pt.Y);
+            var threshold = MouseDragResolver.ResolveThreshold(
+                systemWidth: GetSystemMetrics(SM_CXDRAG),
+                systemHeight: GetSystemMetrics(SM_CYDRAG));
+            if (!MouseDragResolver.TestDrag(start, end, threshold))
+            {
+                return null;
+            }
+
+            // Resolve the element under the release point, preferring the chain captured before the drop changed it.
+            var target = eventRecord.CapturedMouseTarget ?? _repository.GetElementChain(mouse.pt.X, mouse.pt.Y);
+            return MouseDragResolver.NewDrag(source: release.Chain, target, start, end);
+        }
+
         // Resolves button releases from their press-time targets so transient UI
         // elements remain stable after the application reacts to the release.
         private UiaChainModel ResolveMouseTarget(EventRecord eventRecord)
@@ -974,13 +1023,13 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                     return ResolveMouseDown(MouseButton.Right, eventRecord);
 
                 case WM_LBUTTONUP:
-                    return ResolveMouseUp(MouseButton.Left, mouse.pt.X, mouse.pt.Y);
+                    return ResolveMouseUp(MouseButton.Left, mouse.pt.X, mouse.pt.Y).Chain;
 
                 case WM_MBUTTONUP:
-                    return ResolveMouseUp(MouseButton.Middle, mouse.pt.X, mouse.pt.Y);
+                    return ResolveMouseUp(MouseButton.Middle, mouse.pt.X, mouse.pt.Y).Chain;
 
                 case WM_RBUTTONUP:
-                    return ResolveMouseUp(MouseButton.Right, mouse.pt.X, mouse.pt.Y);
+                    return ResolveMouseUp(MouseButton.Right, mouse.pt.X, mouse.pt.Y).Chain;
 
                 default:
                     // Preserve coordinate-based resolution for non-button mouse events.
@@ -1036,8 +1085,9 @@ namespace G4.Recorders.Uia.Domain.Middlewares
             return chain;
         }
 
-        // Resolves a button release and reports when its matching press was absent.
-        private UiaChainModel ResolveMouseUp(MouseButton button, int x, int y)
+        // Resolves a button release and reports when its matching press was absent. The resolution carries the
+        // press point of a paired release, which tells a left-button drag from a click.
+        private MouseTargetResolution ResolveMouseUp(MouseButton button, int x, int y)
         {
             // Prefer the target captured before the application reacts to the release.
             var resolution = _mouseTargetResolver.ResolveUp(button, x, y);
@@ -1064,7 +1114,7 @@ namespace G4.Recorders.Uia.Domain.Middlewares
                 }
             }
 
-            return resolution.Chain;
+            return resolution;
         }
 
         // Converts a key press into the *typed* character string using the keyboard state captured for the

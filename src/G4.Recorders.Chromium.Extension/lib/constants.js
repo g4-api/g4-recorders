@@ -106,6 +106,10 @@
         // How long the mouse must rest over an element before a Hover MoveMouseCursor is
         // recorded. Only used when enabledEvents.hover is on.
         hoverDwellMilliseconds: 5000,
+        // How far, in pixels on either axis, the pointer has to move with the button down before
+        // a press becomes a recorded drag and drop. Smaller moves stay a click. Only used when
+        // enabledEvents.dragAndDrop is on.
+        dragThresholdPixels: 8,
         // DOM context: element events carry a cleaned, Base64-encoded HTML snapshot of the markup
         // around the target (properties.domContext on the trigger node), rooted this many ancestors
         // above it and limited to this size before encoding. Clients use it to heal or optimise
@@ -139,6 +143,9 @@
             click: true,
             doubleClick: true,
             contextMenu: true,
+            // Drag and drop is on by default: without it a native drag is lost and a pointer drag
+            // is recorded as a stray click.
+            dragAndDrop: true,
             input: true,
             change: true,
             keyDown: true,
