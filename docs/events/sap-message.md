@@ -85,6 +85,10 @@ An invalid stream name comes back as a hub error. A second client that asks for 
 
 The hub also offers `GetRecorderStatus`, `StopRecorder` and `FlushRecorder` (`SapRecorderHub.cs:88-142`).
 
+## Limits
+
+- Drag and drop is not supported yet. Neither stream records a drag as one event. There is a feature request for it: [#35](https://github.com/g4-api/g4-recorders/issues/35).
+
 ## Next
 
 - [Recording event contract](contract.md)
