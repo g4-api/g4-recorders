@@ -159,6 +159,8 @@ The hub's CORS origin check must also allow the extension origin
 - A target inside a shadow root, open or closed, is addressed by a CSS shadow path
   (`host >>> inner`). Closed roots are read through `chrome.dom.openOrClosedShadowRoot`, which
   needs no extra permission.
+- A drag and drop is recorded as one `InvokeDragAndDrop` event with the drop element's chain in
+  `value.target.chain`, for HTML drags and for drags a page runs on mouse events.
 - The locator rules, strategies and verdicts are described in
   [docs/events/chromium-events.md](../../docs/events/chromium-events.md#locators).
 - The locator lab (`recorder-locator-lab.html` on the recorder host) and its automated test

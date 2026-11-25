@@ -194,6 +194,51 @@
     }
 
     /**
+     * Builds the descriptor for a drag and drop as an InvokeDragAndDrop action.
+     *
+     * @remarks
+     * Compute-only helper. Called by the content script when a native drag is dropped or a pointer
+     * drag is released. The distance runs from the center of the dragged element to the release
+     * point, because that is the offset the InvokeDragAndDrop plugin moves by when the drag has no
+     * drop element. The drop element's chain is added only when the drag ended on one. A drag is a
+     * genuine in-frame gesture, so it may drive a frame switch.
+     *
+     * @param {object} options Descriptor inputs.
+     * @param {string} options.kind "Native" for an HTML drag and drop, "Pointer" for a pointer drag.
+     * @param {{x: number, y: number}} options.point The release point, in viewport coordinates.
+     * @param {{x: number, y: number}} options.sourceCenter The dragged element's center at the press.
+     * @param {number} options.durationMilliseconds The time from the press to the release.
+     * @param {object|null} options.targetChain The drop element's chain, or null when there is none.
+     * @returns {object} The descriptor.
+     */
+    function newDragAndDropDescriptor(options) {
+        const { kind, point, sourceCenter, durationMilliseconds, targetChain } = options;
+
+        // Carry the release point and the distance the plugin replays when there is no target.
+        const value = {
+            kind,
+            button: 0,
+            X: Math.round(point.x),
+            Y: Math.round(point.y),
+            deltaX: Math.round(point.x - sourceCenter.x),
+            deltaY: Math.round(point.y - sourceCenter.y),
+            durationMilliseconds: Math.max(0, Math.round(durationMilliseconds))
+        };
+
+        // Name the drop element only when the drag ended on one.
+        if (targetChain) {
+            value.target = { chain: targetChain };
+        }
+
+        return {
+            type: EVENT_TYPES.mouse,
+            event: "InvokeDragAndDrop",
+            isFrameSwitchTrigger: true,
+            value
+        };
+    }
+
+    /**
      * Placeholder: builds the SendKeysCombination descriptor for a key combination.
      *
      * @remarks
@@ -464,6 +509,7 @@
     namespace.catalog = {
         getCatalogEntries,
         getEventPoint,
+        newDragAndDropDescriptor,
         newMoveMouseCursorDescriptor,
         newSendKeysDescriptor,
         resolveEventDescriptor

@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>G4 Chromium Recorder — Drag Lab</title>
+
+  <style>
+    :root {
+      --page-foreground: #1f2933;
+      --page-background: #ffffff;
+      --panel-background: #f4f6f8;
+      --muted-foreground: #6b7280;
+      --border-color: #d7dde3;
+      --accent: #2563eb;
+      --accent-soft: #dbeafe;
+      --font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      color: var(--page-foreground);
+      background: var(--page-background);
+      font-family: var(--font-family);
+      line-height: 1.5;
+    }
+
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.4rem;
+    }
+
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.05rem;
+    }
+
+    .lab-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1rem;
+    }
+
+    .lab-case {
+      padding: 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--panel-background);
+    }
+
+    .lab-hint {
+      margin: 0 0 0.75rem;
+      color: var(--muted-foreground);
+      font-size: 0.85rem;
+    }
+
+    .lab-board {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .lab-column {
+      flex: 1;
+      min-height: 120px;
+      margin: 0;
+      padding: 0.5rem;
+      list-style: none;
+      border: 2px dashed var(--border-color);
+      border-radius: 6px;
+      background: var(--page-background);
+    }
+
+    .lab-column--over {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .lab-card {
+      margin: 0 0 0.5rem;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--page-background);
+      cursor: grab;
+      user-select: none;
+    }
+
+    .lab-floor {
+      position: relative;
+      height: 160px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--page-background);
+    }
+
+    .lab-grip {
+      position: absolute;
+      top: 60px;
+      left: 16px;
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      color: var(--page-background);
+      background: var(--accent);
+      cursor: grab;
+      user-select: none;
+    }
+
+    .lab-bin {
+      position: absolute;
+      top: 30px;
+      right: 16px;
+      width: 120px;
+      height: 100px;
+      border: 2px dashed var(--border-color);
+      border-radius: 6px;
+      text-align: center;
+    }
+
+    .lab-sortable {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .lab-sortable__item {
+      margin: 0 0 0.25rem;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--page-background);
+      cursor: grab;
+      user-select: none;
+    }
+
+    .lab-sortable__item--dragging {
+      opacity: 0.6;
+    }
+
+    .lab-track {
+      position: relative;
+      height: 8px;
+      margin: 1.5rem 0;
+      border-radius: 4px;
+      background: var(--border-color);
+    }
+
+    .lab-thumb {
+      position: absolute;
+      top: -8px;
+      left: 0;
+      width: 24px;
+      height: 24px;
+      margin-left: -12px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: grab;
+    }
+
+    .lab-output {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Drag Lab</h1>
+  <p class="lab-hint">
+    Each case is one drag and drop the recorder records as InvokeDragAndDrop. The last case must not be recorded as a drag.
+  </p>
+
+  <main id="drag-lab"
+        class="lab-grid"
+        data-test-id="drag-lab-main">
+    <section id="lab-case-native"
+             class="lab-case"
+             data-test-id="drag-lab-native-case"
+             aria-label="Native drag and drop">
+      <h2>1. Native card between columns</h2>
+      <p class="lab-hint">An HTML drag and drop: the card moves to Done on drop.</p>
+      <div class="lab-board">
+        <ul id="lab-column-todo"
+            class="lab-column"
+            data-lab-drop-zone="native"
+            data-test-id="drag-lab-todo-column"
+            aria-label="To do">
+          <li id="lab-card-report"
+              class="lab-card"
+              data-test-id="drag-lab-report-card"
+              draggable="true">
+            Write report
+          </li>
+        </ul>
+        <ul id="lab-column-done"
+            class="lab-column"
+            data-lab-drop-zone="native"
+            data-test-id="drag-lab-done-column"
+            aria-label="Done">
+        </ul>
+      </div>
+    </section>
+
+    <section id="lab-case-pointer"
+             class="lab-case"
+             data-test-id="drag-lab-pointer-case"
+             aria-label="Pointer drag with a threshold">
+      <h2>2. Pointer drag into a bin</h2>
+      <p class="lab-hint">A mouse-driven drag that starts only after two moves and six pixels.</p>
+      <div id="lab-floor"
+           class="lab-floor"
+           data-test-id="drag-lab-floor">
+        <div id="lab-parcel"
+             class="lab-grip"
+             data-test-id="drag-lab-parcel-grip"
+             aria-label="Parcel"
+             role="button">
+          Parcel
+        </div>
+        <div id="lab-bin"
+             class="lab-bin"
+             data-test-id="drag-lab-bin"
+             aria-label="Recycle bin"
+             role="region">
+          Recycle bin
+        </div>
+      </div>
+    </section>
+
+    <section id="lab-case-sortable"
+             class="lab-case"
+             data-test-id="drag-lab-sortable-case"
+             aria-label="Sortable list">
+      <h2>3. Sortable list</h2>
+      <p class="lab-hint">Drag an item onto another item to move it in front of it.</p>
+      <ol id="lab-priorities"
+          class="lab-sortable"
+          data-test-id="drag-lab-priorities-list"
+          aria-label="Priorities">
+        <li class="lab-sortable__item" data-test-id="drag-lab-priority-alpha">Alpha</li>
+        <li class="lab-sortable__item" data-test-id="drag-lab-priority-beta">Beta</li>
+        <li class="lab-sortable__item" data-test-id="drag-lab-priority-gamma">Gamma</li>
+      </ol>
+    </section>
+
+    <section id="lab-case-slider"
+             class="lab-case"
+             data-test-id="drag-lab-slider-case"
+             aria-label="Slider">
+      <h2>4. Slider without a drop element</h2>
+      <p class="lab-hint">The drag ends on the track it started in, so it is replayed by its distance.</p>
+      <div id="lab-volume-track"
+           class="lab-track"
+           data-test-id="drag-lab-volume-track">
+        <div id="lab-volume-thumb"
+             class="lab-thumb"
+             data-test-id="drag-lab-volume-thumb"
+             aria-label="Volume"
+             aria-valuemax="100"
+             aria-valuemin="0"
+             aria-valuenow="0"
+             role="slider"
+             tabindex="0">
+        </div>
+      </div>
+    </section>
+
+    <section id="lab-case-shadow"
+             class="lab-case"
+             data-test-id="drag-lab-shadow-case"
+             aria-label="Drop inside a shadow root">
+      <h2>5. Native card into a shadow root</h2>
+      <p class="lab-hint">The drop zone lives in the open shadow root of a custom element.</p>
+      <div id="lab-archive-card"
+           class="lab-card"
+           data-test-id="drag-lab-archive-card"
+           draggable="true">
+        Old invoice
+      </div>
+      <lab-archive-tray id="lab-archive-host" data-test-id="drag-lab-archive-host"></lab-archive-tray>
+    </section>
+
+    <section id="lab-case-negative"
+             class="lab-case"
+             data-test-id="drag-lab-negative-case"
+             aria-label="Gestures that are not drags">
+      <h2>6. Not a drag</h2>
+      <p class="lab-hint">Selecting text in the paragraph or the field is not recorded as a drag and drop.</p>
+      <p id="lab-selectable-text" data-test-id="drag-lab-selectable-text">
+        Selecting this sentence with the mouse is a text selection, which looks like a pointer drag.
+      </p>
+      <input type="text"
+             id="lab-selectable-field"
+             data-test-id="drag-lab-selectable-field"
+             aria-label="Notes"
+             value="Select part of this text">
+    </section>
+
+    <section id="lab-case-state"
+             class="lab-case"
+             data-test-id="drag-lab-state-case"
+             aria-label="Lab state">
+      <h2>State</h2>
+      <pre id="lab-state-output"
+           class="lab-output"
+           data-test-id="drag-lab-state-output"
+           aria-live="polite">
+      </pre>
+    </section>
+  </main>
+
+  <script>
+    /**
+     * Drag lab page logic.
+     *
+     * Implements the five drag cases the recorder is tested against and keeps their outcome in
+     * one state object, shown on the page and read by the end-to-end check through
+     * globalThis.g4DragLab.getState().
+     */
+    (function initializeDragLab(globalScope) {
+      // The distance and the number of moves a pointer drag needs before it starts, like the
+      // thresholds common drag libraries use.
+      const POINTER_DRAG_MINIMUM_MOVES = 2;
+      const POINTER_DRAG_MINIMUM_PIXELS = 6;
+
+      // The drag data type both native cases carry the dragged card's identifier in.
+      const DRAG_DATA_TYPE = "text/plain";
+
+      // The outcome of every case; the end-to-end check compares it after a replay. The lab owns
+      // this one state object, and every case writes only its own field.
+      const state = {
+        archived: false,
+        nativeColumn: "To do",
+        order: ["Alpha", "Beta", "Gamma"],
+        parcel: "floor",
+        volume: 0
+      };
+
+      /**
+       * Shows the current state on the page.
+       *
+       * @remarks
+       * Reads the lab state object directly, because it is the single owner of every case outcome.
+       *
+       * @returns {void}
+       */
+      function showState() {
+        document.getElementById("lab-state-output").textContent = JSON.stringify(state, null, 2);
+      }
+
+      /**
+       * Starts the native card case: the Done and To do columns accept the card on drop.
+       *
+       * @remarks
+       * Owns the listeners of the card and of both columns for the lifetime of the page.
+       *
+       * @returns {void}
+       */
+      function startNativeCase() {
+        const card = document.getElementById("lab-card-report");
+
+        // Carry the card identity in the drag data, as real boards do.
+        const onCardDragStart = (event) => {
+          event.dataTransfer.setData(DRAG_DATA_TYPE, card.id);
+        };
+
+        // Wires one column as a drop zone that highlights while the card is over it.
+        const addDropZone = (column) => {
+          // Accepting the drag over a column is what makes the browser fire drop on it.
+          const onColumnDragOver = (event) => {
+            event.preventDefault();
+            column.classList.add("lab-column--over");
+          };
+
+          // Clear the highlight once the drag leaves the column.
+          const onColumnDragLeave = () => {
+            column.classList.remove("lab-column--over");
+          };
+
+          const onColumnDrop = (event) => {
+            // Accept the drop and clear the highlight, whatever was dropped.
+            event.preventDefault();
+            column.classList.remove("lab-column--over");
+
+            // Ignore anything but the report card, so foreign drags leave the board unchanged.
+            const isReportCard = event.dataTransfer.getData(DRAG_DATA_TYPE) === card.id;
+
+            if (!isReportCard) {
+              return;
+            }
+
+            // Move the card into the column it was dropped on and publish the new column.
+            column.appendChild(card);
+            state.nativeColumn = column.getAttribute("aria-label");
+            showState();
+          };
+
+          column.addEventListener("dragover", onColumnDragOver);
+          column.addEventListener("dragleave", onColumnDragLeave);
+          column.addEventListener("drop", onColumnDrop);
+        };
+
+        card.addEventListener("dragstart", onCardDragStart);
+
+        // Turn every native drop zone on the board into a column the card can land in.
+        document.querySelectorAll("[data-lab-drop-zone='native']").forEach(addDropZone);
+      }
+
+      /**
+       * Starts the pointer case: the parcel follows the mouse once the drag threshold is passed,
+       * and lands in the bin when it is released over it.
+       *
+       * @remarks
+       * Owns the drag state of the parcel in a closure, so it never leaks into the lab state.
+       *
+       * @returns {void}
+       */
+      function startPointerCase() {
+        const parcel = document.getElementById("lab-parcel");
+        const bin = document.getElementById("lab-bin");
+        const floor = document.getElementById("lab-floor");
+        let drag = null;
+
+        // Arm on press; the page prevents text selection, as drag libraries do.
+        const onParcelMouseDown = (event) => {
+          event.preventDefault();
+          drag = { isActive: false, moves: 0, startX: event.clientX, startY: event.clientY };
+        };
+
+        const onDocumentMouseMove = (event) => {
+          // Ignore moves while no press armed the parcel.
+          if (!drag) {
+            return;
+          }
+
+          // Count the move and start the drag once both the move count and the distance pass.
+          drag.moves += 1;
+
+          const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+          const isEnoughMoves = drag.moves >= POINTER_DRAG_MINIMUM_MOVES;
+          const isFarEnough = distance > POINTER_DRAG_MINIMUM_PIXELS;
+
+          if (isEnoughMoves && isFarEnough) {
+            drag.isActive = true;
+          }
+
+          // Leave the parcel in place until the drag has started.
+          if (!drag.isActive) {
+            return;
+          }
+
+          // Center the parcel on the pointer, relative to the floor it is positioned in.
+          const floorBox = floor.getBoundingClientRect();
+          const parcelLeftPixels = event.clientX - floorBox.left - (parcel.offsetWidth / 2);
+          const parcelTopPixels = event.clientY - floorBox.top - (parcel.offsetHeight / 2);
+
+          parcel.style.left = `${parcelLeftPixels}px`;
+          parcel.style.top = `${parcelTopPixels}px`;
+        };
+
+        const onDocumentMouseUp = (event) => {
+          // Ignore releases while no press armed the parcel.
+          if (!drag) {
+            return;
+          }
+
+          // Drop into the bin only when a started drag is released inside it.
+          const binBox = bin.getBoundingClientRect();
+          const isInsideX = event.clientX >= binBox.left && event.clientX <= binBox.right;
+          const isInsideY = event.clientY >= binBox.top && event.clientY <= binBox.bottom;
+          const isOverBin = isInsideX && isInsideY;
+
+          if (drag.isActive && isOverBin) {
+            state.parcel = "bin";
+            showState();
+          }
+
+          // End the press whatever it was, so the next press starts clean.
+          drag = null;
+        };
+
+        parcel.addEventListener("mousedown", onParcelMouseDown);
+        document.addEventListener("mousemove", onDocumentMouseMove);
+        document.addEventListener("mouseup", onDocumentMouseUp);
+      }
+
+      /**
+       * Starts the shadow case: a custom element whose open shadow root holds the drop zone.
+       *
+       * @remarks
+       * Defines the lab-archive-tray element once; the tray uses the page tokens, which custom
+       * properties carry into the shadow root.
+       *
+       * @returns {void}
+       */
+      function startShadowCase() {
+        const card = document.getElementById("lab-archive-card");
+
+        // The tray markup, split into its attributes, its inline style, and its text.
+        const trayAttributes = 'class="tray" data-test-id="drag-lab-archive-tray" aria-label="Archive tray"';
+        const trayLayoutStyle = "min-height:80px;margin-top:0.75rem;padding:0.5rem;";
+        const trayVisualStyle = "border:2px dashed var(--border-color);border-radius:6px;";
+        const trayMarkup = `<div ${trayAttributes} style="${trayLayoutStyle}${trayVisualStyle}">Archive tray</div>`;
+
+        // Carry the card identity in the drag data, as real boards do.
+        const onCardDragStart = (event) => {
+          event.dataTransfer.setData(DRAG_DATA_TYPE, card.id);
+        };
+
+        /**
+         * A tray that accepts the archive card into its shadow root.
+         */
+        class LabArchiveTray extends HTMLElement {
+          /**
+           * Builds the shadow tray and wires it as a drop zone when the element joins the page.
+           *
+           * @returns {void}
+           */
+          connectedCallback() {
+            // Build the open shadow root, so the recorder can reach the tray across the boundary.
+            const root = this.attachShadow({ mode: "open" });
+            root.innerHTML = trayMarkup;
+
+            const tray = root.querySelector(".tray");
+
+            // Accepting the drag over the tray is what makes the browser fire drop on it.
+            const onTrayDragOver = (event) => {
+              event.preventDefault();
+            };
+
+            const onTrayDrop = (event) => {
+              // Accept the drop, then ignore anything but the archive card.
+              event.preventDefault();
+
+              const isArchiveCard = event.dataTransfer.getData(DRAG_DATA_TYPE) === card.id;
+
+              if (!isArchiveCard) {
+                return;
+              }
+
+              // Move the card into the tray and publish that it was archived.
+              tray.appendChild(card);
+              state.archived = true;
+              showState();
+            };
+
+            tray.addEventListener("dragover", onTrayDragOver);
+            tray.addEventListener("drop", onTrayDrop);
+          }
+        }
+
+        card.addEventListener("dragstart", onCardDragStart);
+
+        // Register the tray element, which upgrades the host already in the markup.
+        customElements.define("lab-archive-tray", LabArchiveTray);
+      }
+
+      /**
+       * Starts the slider case: the thumb follows the pointer along the track.
+       *
+       * @remarks
+       * Owns the dragging flag in a closure; the volume is published to the lab state on release.
+       *
+       * @returns {void}
+       */
+      function startSliderCase() {
+        const track = document.getElementById("lab-volume-track");
+        const thumb = document.getElementById("lab-volume-thumb");
+        let isDragging = false;
+
+        // Grab the thumb; the page prevents text selection, as slider widgets do.
+        const onThumbMouseDown = (event) => {
+          event.preventDefault();
+          isDragging = true;
+        };
+
+        const onDocumentMouseMove = (event) => {
+          // Ignore moves while the thumb is not grabbed.
+          if (!isDragging) {
+            return;
+          }
+
+          // Convert the pointer position on the track into a value from 0 to 100.
+          const trackBox = track.getBoundingClientRect();
+          const rawRatio = (event.clientX - trackBox.left) / trackBox.width;
+          const ratio = Math.min(1, Math.max(0, rawRatio));
+
+          // Apply the value to the state, the thumb position, and the slider's accessible value.
+          state.volume = Math.round(ratio * 100);
+          thumb.style.left = `${ratio * 100}%`;
+          thumb.setAttribute("aria-valuenow", String(state.volume));
+        };
+
+        const onDocumentMouseUp = () => {
+          // Ignore releases while the thumb is not grabbed.
+          if (!isDragging) {
+            return;
+          }
+
+          // Release the thumb and publish the final volume.
+          isDragging = false;
+          showState();
+        };
+
+        thumb.addEventListener("mousedown", onThumbMouseDown);
+        document.addEventListener("mousemove", onDocumentMouseMove);
+        document.addEventListener("mouseup", onDocumentMouseUp);
+      }
+
+      /**
+       * Starts the sortable case: an item dropped on another item moves in front of it.
+       *
+       * @remarks
+       * Owns the dragged item in a closure; the new order is published to the lab state on release.
+       *
+       * @returns {void}
+       */
+      function startSortableCase() {
+        const list = document.getElementById("lab-priorities");
+        let draggedItem = null;
+
+        const onListMouseDown = (event) => {
+          // Only a press on an item grabs something to sort.
+          const item = event.target.closest(".lab-sortable__item");
+
+          if (!item) {
+            return;
+          }
+
+          // Grab the item and mark it; the page prevents text selection, as sortable lists do.
+          event.preventDefault();
+          draggedItem = item;
+          item.classList.add("lab-sortable__item--dragging");
+        };
+
+        // Tests whether an element under the release point is another item to insert before.
+        const testOtherItem = (element) => {
+          const isItem = element.classList.contains("lab-sortable__item");
+
+          return isItem && element !== draggedItem;
+        };
+
+        const onDocumentMouseUp = (event) => {
+          // Ignore releases while no item is grabbed.
+          if (!draggedItem) {
+            return;
+          }
+
+          // Insert the dragged item before the item under the release point, if there is one.
+          const targetItem = document.elementsFromPoint(event.clientX, event.clientY).find(testOtherItem);
+
+          if (targetItem) {
+            list.insertBefore(draggedItem, targetItem);
+          }
+
+          // Release the item and publish the order the list now shows.
+          draggedItem.classList.remove("lab-sortable__item--dragging");
+          draggedItem = null;
+          state.order = Array.from(list.children).map((item) => item.textContent.trim());
+          showState();
+        };
+
+        list.addEventListener("mousedown", onListMouseDown);
+        document.addEventListener("mouseup", onDocumentMouseUp);
+      }
+
+      // Start every case in page order and show the initial state.
+      startNativeCase();
+      startPointerCase();
+      startSortableCase();
+      startSliderCase();
+      startShadowCase();
+      showState();
+
+      // Let the end-to-end check read the outcome, as a copy it cannot change the lab through.
+      globalScope.g4DragLab = {
+        getState: () => structuredClone(state)
+      };
+    })(globalThis);
+  </script>
+</body>
+
+</html>

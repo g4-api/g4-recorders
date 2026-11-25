@@ -16,6 +16,7 @@ Interaction events:
 | `InvokeDoubleClick` | double click | Mouse |
 | `InvokeContextClick` | right-click / context menu | Mouse |
 | `InvokeScroll` | wheel/scroll (direction + notches in `value`) | Mouse |
+| `InvokeDragAndDrop` | an element dragged and dropped; see [Drag and drop](#drag-and-drop) | Mouse |
 | `SendKeys` | typed-field commit (focus loss, field change, form submission, or page exit); `value.text` = typed text, password-redactable | Keyboard |
 | `SubmitForm` | form submit (`value` carries `formId`/`formName`) | Form |
 | `MoveMouseCursor` | mouse rests over an element (`value` carries `X`, `Y`, `dwellMilliseconds`); off by default (`hover`) | Mouse |
@@ -37,7 +38,7 @@ Navigation events (type `Navigation`, top frame, full-page only):
 
 ## Locators
 
-Every element event carries a ranked list of locators for its target. Each locator was evaluated against the live page when the event was recorded, and only locators that resolve to exactly the target are kept. The events are `InvokeClick`, `InvokeDoubleClick`, `InvokeContextClick`, `SendKeys`, `MoveMouseCursor`, `InvokeScroll` and `SubmitForm`.
+Every element event carries a ranked list of locators for its target. Each locator was evaluated against the live page when the event was recorded, and only locators that resolve to exactly the target are kept. The events are `InvokeClick`, `InvokeDoubleClick`, `InvokeContextClick`, `InvokeDragAndDrop`, `SendKeys`, `MoveMouseCursor`, `InvokeScroll` and `SubmitForm`. A drag and drop also carries the locators of its drop element.
 
 The best XPath is the `chain.locator`. The whole list sits on the trigger node, `chain.path[0].properties`:
 
@@ -125,6 +126,47 @@ The rules of a shadow path are:
 
 Open and closed shadow roots are recorded the same way. The page cannot read a closed root, but the extension can, through `chrome.dom.openOrClosedShadowRoot`. A click is followed into a closed root by the pointer position, and typing or a click fired from the keyboard by the focused element. Hot testing and the [locator test route](peek-and-observe.md#test-a-locator) both accept a shadow path.
 
+## Drag and drop
+
+A drag and drop is recorded as one `InvokeDragAndDrop` event. The chain is the dragged element, as for a click, and `value` describes where the drag ended:
+
+```json
+{
+    "type": "Mouse",
+    "event": "InvokeDragAndDrop",
+    "chain": { "locator": "//*[@data-test-id='report-card']", "path": [] },
+    "value": {
+        "kind": "Native",
+        "button": 0,
+        "X": 612,
+        "Y": 310,
+        "deltaX": 189,
+        "deltaY": 39,
+        "durationMilliseconds": 820,
+        "target": { "chain": { "locator": "//ul[@aria-label='Done']", "path": [] } }
+    }
+}
+```
+
+| `value` member | Meaning |
+| --- | --- |
+| `kind` | `Native` for an HTML drag and drop (`dragstart` and `drop`), `Pointer` for a drag the page runs on mouse events. |
+| `X`, `Y` | The release point, in viewport coordinates. |
+| `deltaX`, `deltaY` | The distance from the center of the dragged element, measured at the press, to the release point. It is the offset the `InvokeDragAndDrop` plugin moves by when the drag has no drop element. |
+| `durationMilliseconds` | The time from the press to the release. |
+| `target.chain` | The drop element, with its own `locators`, `locatorStrength` and `locatorId`. Left out when the drag ended on nothing distinct. |
+
+The rules are:
+
+- **A press becomes a drag only past a threshold.** The pointer has to move `dragThresholdPixels` (8 by default) on either axis with the button held. A smaller move stays a click.
+- **A native drag is recorded on drop.** The browser fires `drop` only on an element that accepted the drag. A drag that ends without a drop, or drops in another frame, records nothing.
+- **The drop element is distinct from the dragged element.** It is the first element under the release point that is not the dragged element, one of its ancestors, or one of its descendants. A drag that ends on its own track, such as a slider, has no drop element and is replayed by its distance.
+- **The click after a pointer drag is not recorded.** The browser fires one after the release, often on the page body.
+- **Text selection is not a drag.** A press inside a text field, a list box, or a media player, a press on a scroll bar, and a release that leaves text selected are not recorded as a drag and drop.
+- **Both elements are hot-tested.** The drop element is re-tested and corrected through `ReceiveLocatorAmendment` under its own `locatorId`.
+
+The `dragAndDrop` switch on the options page turns the recording on or off, and it is on by default. The Hub turns the event into an `InvokeDragAndDrop` rule, which drops on the drop element's locator or replays the distance. The drag lab page (`recorder-drag-lab.html`) holds one case for each kind of drag.
+
 ## DOM context
 
 Element events carry a snapshot of the markup around their target, so a client can heal or optimise the locator later. The events are `InvokeClick`, `InvokeDoubleClick`, `InvokeContextClick`, `SendKeys` and `MoveMouseCursor`. The snapshot sits on the trigger node, `chain.path[0].properties`:
@@ -173,6 +215,9 @@ parent: `SwitchParentFrame` → action.
 All events can be toggled on the settings page.
 
 ## Limits
+
+- A drag is replayed from the center of the dragged element, because the `InvokeDragAndDrop` plugin has no grab offset. A drag that depends on where the element was grabbed, such as drawing on a canvas, starts at a different point on replay.
+- A drag from one frame into another is not recorded.
 
 - Browser coordinates are viewport-relative (`clientX` and `clientY`). True screen coordinates are not available to web pages.
 - Locators are scoped to each frame document, so cross-frame interactions are recorded with the local path of the frame.

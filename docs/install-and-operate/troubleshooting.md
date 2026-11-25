@@ -33,35 +33,35 @@ Recorder messages are written to the console window of the recorder. Messages fr
 - **Cause:** Windows refused the low-level keyboard hook. The recorder is not in an interactive session, or it lacks the rights. The message ends with the Win32 error code.
 - **Check:** Make sure the console window belongs to your signed-in desktop session, not a service or a non-interactive remote session. Check that you accepted the administrator prompt.
 - **Fix:** Close the recorder and start it again as administrator in your desktop session.
-- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:281`
+- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:289`
 
 ### Failed to install global mouse hook
 
 - **Cause:** Windows refused the low-level mouse hook. Both hooks are tried first, then the keyboard hook is checked. If the keyboard hook failed, you see the keyboard message instead.
 - **Check:** Read the Win32 error code at the end of the message.
 - **Fix:** Start the recorder again as administrator in your desktop session.
-- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:289`
+- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:297`
 
 ### Skipped event; access denied to a higher-privilege UI element
 
 - **Cause:** You clicked or typed in a window that runs at a higher integrity level than the recorder, such as an application started as administrator. The recorder skips that event.
 - **Check:** Check whether the target application was started as administrator.
 - **Fix:** Run the recorder as administrator. The UIA program asks for this when it starts, so accept the prompt.
-- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:1485`
+- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:1532`
 
 ### Failed to resolve event
 
 - **Cause:** One event could not be turned into a UI Automation chain. The recorder logs it and goes on with the next event, so one bad event does not stop the recording.
 - **Check:** Read the exception that follows the message. Note the event type and the timestamp.
 - **Fix:** Repeat the action. If it keeps failing on the same control, note the control's details and report them.
-- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:1503`
+- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:1550`
 
 ### UI Automation focus monitoring failed to start
 
 - **Cause:** The recorder could not register for focus changes. Keyboard and mouse recording still work.
 - **Check:** Read the exception that follows the message.
 - **Fix:** Restart the recorder. Focus-based peeks may be less accurate until you do.
-- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:531`
+- **Source:** `src/G4.Recorders.Uia.Domain/Middlewares/UiaEventCaptureService.cs:540`
 
 ### The current physical cursor position is unavailable
 

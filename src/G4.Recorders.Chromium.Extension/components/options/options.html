@@ -181,6 +181,45 @@
           </span>
         </div>
 
+        <div class="recorder-options__field">
+          <label class="recorder-options__label" for="drag-threshold-input">
+            Drag threshold (pixels)
+          </label>
+          <div id="drag-threshold-field"
+               class="number-field"
+               data-test-id="drag-threshold-field">
+            <input type="number"
+                   id="drag-threshold-input"
+                   class="number-field__input"
+                   data-test-id="drag-threshold-input"
+                   aria-describedby="drag-threshold-hint"
+                   max="100"
+                   min="1"
+                   step="1">
+            <span class="number-field__spin">
+              <button type="button"
+                      class="number-field__step number-field__step--up"
+                      data-test-id="drag-threshold-step-up"
+                      aria-label="Increase drag threshold"
+                      tabindex="-1">
+                &#9650;
+              </button>
+              <button type="button"
+                      class="number-field__step number-field__step--down"
+                      data-test-id="drag-threshold-step-down"
+                      aria-label="Decrease drag threshold"
+                      tabindex="-1">
+                &#9660;
+              </button>
+            </span>
+          </div>
+          <span id="drag-threshold-hint"
+                class="recorder-options__hint"
+                data-test-id="drag-threshold-hint">
+            How far the pointer must move with the button held before a press is recorded as a drag and drop. Only used when Drag and Drop is on.
+          </span>
+        </div>
+
         <fieldset class="recorder-options__field recorder-options__events-fieldset"
                   data-test-id="enabled-events-fieldset">
           <legend class="recorder-options__label">
@@ -231,6 +270,22 @@
               </button>
               <span class="recorder-options__hint recorder-options__event-hint">
                 Fires on a right-click / context menu.
+              </span>
+            </div>
+
+            <div class="recorder-options__event">
+              <button type="button"
+                      id="event-toggle-dragAndDrop"
+                      class="switch"
+                      data-test-id="event-toggle-drag-and-drop"
+                      aria-checked="false"
+                      role="switch">
+                <span class="switch__track"><span class="switch__knob"></span></span>
+                <span class="switch__label">Drag and Drop</span>
+              </button>
+              <span class="recorder-options__hint recorder-options__event-hint"
+                    data-test-id="event-toggle-drag-and-drop-hint">
+                Records dragging an element and dropping it, as one action. Presses that move less than the drag threshold stay clicks.
               </span>
             </div>
 

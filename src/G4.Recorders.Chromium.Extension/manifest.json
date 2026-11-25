@@ -54,6 +54,7 @@
                 "lib/dom-mapper.js",
                 "lib/locator-monitor.js",
                 "lib/event-catalog.js",
+                "lib/drag-tracker.js",
                 "js/content-script.js"
             ]
         }
