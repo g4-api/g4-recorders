@@ -55,7 +55,7 @@ The button is the first word of the event name. Only the release (`Up`) event pr
 | --- | --- | --- |
 | `Left Up` | `standard` | `InvokeClick` |
 | `Left Up` | `user32`, `coordinate` | `InvokeUser32Click` |
-| `Left Up` with `value.drag` | `standard`, `user32` | `InvokeUser32DragAndDrop` |
+| `Left Up` with `value.drag` | `standard`, `user32`, `coordinate` | `InvokeUser32DragAndDrop` |
 | `Middle Up` | `standard` | `InvokeMiddleClick` |
 | `Middle Up` | `user32`, `coordinate` | `InvokeUser32MiddleClick` |
 | `Right Up` | `standard` | `InvokeContextClick` |
@@ -65,8 +65,16 @@ The button is the first word of the event name. Only the release (`Up`) event pr
 Arguments and locators (`NewMouseRule`):
 
 - In `coordinate` mode the argument is `{{$ --X:<x> --Y:<y>}}`, taken from `value.x` and `value.y`, and the rule has no locator.
-- A drag and drop becomes `InvokeUser32DragAndDrop` in `standard` and `user32` modes, because UI Automation has no drag pattern. The rule names the dragged element in `onElement`. A measured grab point becomes `--Alignment:TopLeft --OffsetX --OffsetY`. The drop is `--Target:<locator>` with `--TargetAlignment:TopLeft --TargetOffsetX --TargetOffsetY`, or `--DeltaX --DeltaY` from the press point when there is no usable target. The corner is the reference because the UIA driver applies offsets to every alignment except its `MiddleCenter` default.
-- Drag and drop is not supported in `coordinate` mode. `InvokeUser32DragAndDrop` needs the element to drag, and a `coordinate` rule has no locator, so a drag is played as a click at the release point. There is a feature request for it: [#37](https://github.com/g4-api/g4-recorders/issues/37).
+- A drag and drop always becomes `InvokeUser32DragAndDrop`, because UI Automation has no drag pattern. Each end is an element point when the element has a usable locator, and a screen point otherwise:
+
+    | End | Element | No usable element |
+    | --- | --- | --- |
+    | Start | `onElement`, with `--Alignment:TopLeft --OffsetX --OffsetY` when the grab point was measured | `--X --Y`, the press point |
+    | End, start on an element | `--Target:<locator>`, with `--TargetAlignment:TopLeft --TargetOffsetX --TargetOffsetY` when the drop point was measured | `--DeltaX --DeltaY` from the press point, so the drop follows the element when the window moves |
+    | End, start at a screen point | `--Target:<locator>` and its offsets | `--TargetX --TargetY`, the release point |
+
+- In `coordinate` mode both ends are screen points: `{{$ --X:<press x> --Y:<press y> --TargetX:<release x> --TargetY:<release y>}}`, with no locator. A screen point replays correctly only on the same screen layout, so element points are preferred wherever a locator exists.
+- Offsets are measured from the top-left corner, which the UIA driver applies on every version.
 - In the other modes the rule gets the `chain.locator`. If it is empty, the builder falls back to `chain.fallbackLocator`.
 - With `user32` mode and `useOffset` on, the builder reads `chain.mouseOffset`. If that is empty it falls back to an event-level `offset`, which current recorders do not send. A non-zero offset gives the argument `{{$ --OffsetX:<x> --OffsetY:<y> --Alignment:TopLeft}}`.
 

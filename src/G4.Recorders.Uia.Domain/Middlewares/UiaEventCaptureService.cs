@@ -981,9 +981,10 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         // hook-attached hover chain is used when it was accepted for that point, otherwise UIA is asked once.
         private UiaDragModel NewMouseDrag(EventRecord eventRecord, MouseTargetResolution release)
         {
-            // A release without its press has no start point, so it can only be a click.
+            // A release without its press has no start point, so it can only be a click. A press over nothing UI
+            // Automation resolved still has its point, so its drag is kept and replays between screen points.
             var mouse = eventRecord.EventData.Mouse;
-            if (release.UsedFallback || release.Chain == null)
+            if (release.UsedFallback)
             {
                 return null;
             }

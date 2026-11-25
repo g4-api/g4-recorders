@@ -28,7 +28,10 @@ namespace G4.Recorders.Uia.Domain.Middlewares
         /// <summary>
         /// Creates the drag facts of a press and release that moved past the drag threshold.
         /// </summary>
-        /// <param name="source">The press-time chain of the dragged element.</param>
+        /// <param name="source">
+        /// The press-time chain of the dragged element, or <see langword="null"/> when the press landed on nothing UI
+        /// Automation resolved; the drag then has no grab offset and replays from its press point.
+        /// </param>
         /// <param name="target">The chain under the release point, or <see langword="null"/> when none was resolved.</param>
         /// <param name="start">The screen point of the press.</param>
         /// <param name="end">The screen point of the release.</param>
