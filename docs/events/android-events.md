@@ -89,6 +89,7 @@ The three settings are in the **View context** section of the app's settings scr
 
 ## Limits
 
+- Drag and drop is not supported yet. A long press followed by a move is not recorded as a drag. There is a feature request for it: [#34](https://github.com/g4-api/g4-recorders/issues/34).
 - `InvokeLongClick` and `SwitchActivity` have no replay plugin yet.
 - Only real key presses reach accessibility services. Back from a hardware key or the emulator's keys is recorded. Back sent with `adb shell input keyevent`, and the back gesture of gesture navigation, send no key event and are not recorded.
 - The G4 `InvokeScroll` plugin reads only its `Left` and `Top` parameters, while the Hub writes `--direction` and `--times`, so a recorded scroll replays as a no-op. This affects Chromium flows the same way.
