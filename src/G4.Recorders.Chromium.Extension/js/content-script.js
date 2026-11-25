@@ -9,8 +9,8 @@
  *
  * @remarks
  * This file is the last entry in the manifest content-script list, so the constants,
- * settings, contract, locator, accessibility, candidate, DOM context, mapper, monitor, and catalog
- * modules are already attached to the shared g4Recorder namespace by the time this code runs.
+ * settings, contract, locator, accessibility, candidate, DOM context, mapper, monitor, catalog, and
+ * drag modules are already attached to the shared g4Recorder namespace by the time this code runs.
  */
 (function initializeContentScriptModule(globalScope) {
     // Read the shared modules this script composes. All are loaded earlier in the list.
@@ -20,6 +20,7 @@
         catalog,
         constants,
         contract,
+        dragTracker,
         locator,
         locatorCandidates,
         locatorMonitor,
@@ -57,6 +58,19 @@
     let hoverClientY = 0;
     let hoverDwellTimerId = null;
 
+    // Drag and drop state. A press that may start a drag is kept until it is released, dropped, or
+    // replaced by the next press. It turns into a drag once the pointer moves past the threshold
+    // with the button down, or when the browser starts a native drag. Per frame (isolated world).
+    // The fallback threshold guards against a missing or invalid stored value.
+    const DRAG_THRESHOLD_FALLBACK_PIXELS = 8;
+    let pendingDrag = null;
+
+    // The browser fires a click after the release of a pointer drag, on the element under both the
+    // press and the release, often the page body. That click is part of the drag, so a click that
+    // arrives within this window after a recorded drag is not recorded.
+    const DRAG_CLICK_WINDOW_MILLISECONDS = 500;
+    let dragClickSuppressedUntil = 0;
+
     // Latest trusted pointer snapshot used by on-demand current-position peek requests even
     // when hover recording is disabled. The state is invalidated when the frame loses pointer ownership.
     let isPointerInsideDocument = false;
@@ -75,6 +89,7 @@
         "InvokeClick",
         "InvokeContextClick",
         "InvokeDoubleClick",
+        "InvokeDragAndDrop",
         "MoveMouseCursor",
         "SendKeys"
     ]);
@@ -318,8 +333,51 @@
             return null;
         }
 
+        return newLocatorRecord(recording.element, recording.recordingEvent.chain);
+    }
+
+    /**
+     * Builds the hot-test record of a drag and drop's drop element, or null when it has none.
+     *
+     * @remarks
+     * Compute-only. The drop element is recorded with its own chain in value.target, under its
+     * own locator identifier, so it is re-tested and corrected like the dragged element.
+     *
+     * @param {object} recording The built recording ({ targetElement, recordingEvent, ... }).
+     * @returns {object|null} The record, or null when hot testing does not apply.
+     */
+    function getTargetLocatorRecord(recording) {
+        // Only a drag that ended on an element has a drop element worth testing.
+        const value = recording.recordingEvent.value;
+        const isTargetPresent = Boolean(value) && Boolean(value.target);
+        const targetChain = isTargetPresent
+            ? value.target.chain
+            : null;
+        const isRecordable = Boolean(activeSettings.isLocatorHotTestingEnabled)
+            && Boolean(recording.targetElement)
+            && Boolean(targetChain);
+
+        if (!isRecordable) {
+            return null;
+        }
+
+        return newLocatorRecord(recording.targetElement, targetChain);
+    }
+
+    /**
+     * Builds the hot-test record of one element from the chain recorded for it.
+     *
+     * @remarks
+     * Compute-only. Reads the locators the mapper published on the chain's trigger node and adds
+     * what a later load needs to find the element again: its fingerprint and this page's identity.
+     *
+     * @param {Element} element The recorded element.
+     * @param {object} chain The chain recorded for the element.
+     * @returns {object|null} The record, or null when the chain carries no locators to test.
+     */
+    function newLocatorRecord(element, chain) {
         // Read the locators the mapper published on the trigger node.
-        const triggerNode = recording.recordingEvent.chain.path[0];
+        const triggerNode = chain.path[0];
         const properties = triggerNode
             ? triggerNode.properties
             : null;
@@ -332,7 +390,7 @@
         // Describe the element for a later load: its locators, how to recognise it, and where.
         return {
             documentId: locatorMonitor.getDocumentId(),
-            fingerprint: locatorCandidates.getElementFingerprint(recording.element),
+            fingerprint: locatorCandidates.getElementFingerprint(element),
             locatorId: properties.locatorId,
             locators: properties.locators,
             pageKey: locatorMonitor.getPageKey()
@@ -464,6 +522,15 @@
             return;
         }
 
+        // Skip the click the browser fires after the release of a recorded pointer drag.
+        const isDragClick = domEvent.type === "click" && Date.now() < dragClickSuppressedUntil;
+
+        if (isDragClick) {
+            dragClickSuppressedUntil = 0;
+
+            return;
+        }
+
         // Collapse the duplicate click a browser dispatches on a control when its <label>
         // is clicked: skip the synthetic follow-up, but keep keyboard-activated clicks
         // (also detail 0, yet not following a real click) and direct control clicks.
@@ -503,18 +570,20 @@
      * action also hands its hot-test record to the worker and starts the settle test.
      *
      * @param {object} recording The event plus its context ({ element, recordingEvent,
-     *   isFrameSwitchTrigger }).
+     *   isFrameSwitchTrigger, targetElement }). Only a drag and drop names a target element.
      * @returns {void}
      */
     function sendRecordingMessage(recording) {
-        // Resolve the hot-test record first, so it travels with the event it belongs to.
+        // Resolve the hot-test records first, so they travel with the event they belong to.
         const locatorRecord = getLocatorRecord(recording);
+        const targetLocatorRecord = getTargetLocatorRecord(recording);
         const recordingMessage = {
             channel: MESSAGE_CHANNELS.recordingEvent,
             recordingEvent: recording.recordingEvent,
             frameContext: getFrameContext(),
             isFrameSwitchTrigger: recording.isFrameSwitchTrigger,
-            locatorRecord
+            locatorRecord,
+            targetLocatorRecord
         };
 
         chrome.runtime.sendMessage(recordingMessage).catch(() => {
@@ -527,6 +596,17 @@
                 element: recording.element,
                 locatorId: locatorRecord.locatorId,
                 locators: locatorRecord.locators
+            }).catch(() => {
+                // Hot testing is an improvement; a failed test leaves the recorded locators as they are.
+            });
+        }
+
+        // Re-test the drop element of a drag and drop the same way, under its own identifier.
+        if (targetLocatorRecord) {
+            locatorMonitor.watchLocator({
+                element: recording.targetElement,
+                locatorId: targetLocatorRecord.locatorId,
+                locators: targetLocatorRecord.locators
             }).catch(() => {
                 // Hot testing is an improvement; a failed test leaves the recorded locators as they are.
             });
@@ -867,6 +947,15 @@
             return;
         }
 
+        // A drag in progress is not a rest over an element, so no hover dwell runs during it.
+        const isDragInProgress = Boolean(pendingDrag) && pendingDrag.isActive;
+
+        if (isDragInProgress) {
+            stopHoverDwell();
+
+            return;
+        }
+
         // Track the element under the cursor and the cursor position for this move.
         hoverElement = getEventTarget(domEvent);
         hoverClientX = domEvent.clientX;
@@ -893,12 +982,409 @@
         // Invalidate current-position ownership before clearing optional hover-dwell state.
         isPointerInsideDocument = false;
 
+        // Cancel the dwell so it cannot complete for an element the pointer already left.
+        stopHoverDwell();
+    }
+
+    /**
+     * Cancels a pending hover dwell and forgets its element.
+     *
+     * @remarks
+     * Owns the hover-dwell cleanup shared by leaving the frame and by starting a drag, so neither
+     * leaves a dwell that completes for an element the pointer no longer rests on.
+     *
+     * @returns {void}
+     */
+    function stopHoverDwell() {
+        // Clear a running dwell timer so no MoveMouseCursor is recorded after the cancellation.
         if (hoverDwellTimerId !== null) {
             clearTimeout(hoverDwellTimerId);
             hoverDwellTimerId = null;
         }
 
+        // Forget the element so a later flush cannot target where the pointer no longer rests.
         hoverElement = null;
+    }
+
+    /**
+     * Resolves the configured drag threshold, falling back to a safe default.
+     *
+     * @remarks
+     * Compute-only helper. Settings are merged over defaults, so the value is normally present;
+     * the guard covers a missing or non-positive stored value.
+     *
+     * @returns {number} The threshold in pixels on either axis.
+     */
+    function getDragThresholdPixels() {
+        // Accept only a positive finite number, so a corrupt stored value cannot disable the threshold.
+        const configuredPixels = activeSettings.dragThresholdPixels;
+        const isConfiguredValid = Number.isFinite(configuredPixels) && configuredPixels > 0;
+
+        return isConfiguredValid
+            ? configuredPixels
+            : DRAG_THRESHOLD_FALLBACK_PIXELS;
+    }
+
+    /**
+     * Resolves every element under a viewport point, the deepest one first.
+     *
+     * @remarks
+     * Compute-only over the live document. The deepest element comes from the same shadow-aware
+     * walk a peek uses. The layers of the document follow it, topmost first, so the drop element
+     * is still found when a pointer drag keeps the dragged element under the pointer.
+     *
+     * @param {{x: number, y: number}} point The point in this frame's viewport.
+     * @returns {Element[]} The elements under the point, with no empty entries.
+     */
+    function getElementsAtPoint(point) {
+        // Read the shadow-aware deepest element, then every document layer where the API exists.
+        const deepElement = resolveElementFromPoint(point.x, point.y);
+        const layeredElements = typeof document.elementsFromPoint === "function"
+            ? document.elementsFromPoint(point.x, point.y)
+            : [];
+
+        // Keep the deepest element first and drop empty entries, so callers only see elements.
+        return [deepElement, ...layeredElements].filter(Boolean);
+    }
+
+    /**
+     * Builds the chain of the element a drag starts on.
+     *
+     * @remarks
+     * Compute-only. Called once the gesture is known to be a drag, before the release, so the
+     * chain describes the element before the page moves or replaces it on the drop.
+     *
+     * @param {object} drag The drag state ({ sourceElement, start, ... }).
+     * @returns {object} The chain, with its verified locators and, when enabled, its DOM context.
+     */
+    function newDragSourceChain(drag) {
+        return mapper.newChainFromElement({
+            element: drag.sourceElement,
+            trigger: "InvokeDragAndDrop",
+            point: contract.newPoint({ xPosition: drag.start.x, yPosition: drag.start.y }),
+            domContextOptions: getDomContextOptions("InvokeDragAndDrop"),
+            locatorSettings: getLocatorSettings()
+        });
+    }
+
+    /**
+     * Starts a pointer drag once the pointer moves past the threshold with the button down.
+     *
+     * @remarks
+     * Owns the switch from a press to a drag. The source chain is built at that moment, before
+     * the page changes anything on the drop. A move with the main button no longer down means
+     * the release happened outside this frame, so the press is forgotten.
+     *
+     * @param {MouseEvent} domEvent The mousemove event.
+     * @returns {void}
+     */
+    function onDragMove(domEvent) {
+        // Only a real move of an armed, not yet started drag matters here.
+        const isArmed = Boolean(pendingDrag) && !pendingDrag.isActive && domEvent.isTrusted;
+
+        if (!isArmed) {
+            return;
+        }
+
+        // A move without the main button down ends the press that armed the drag. Bit 1 of
+        // MouseEvent.buttons is the main button.
+        const isButtonHeld = (domEvent.buttons & 1) === 1;
+
+        if (!isButtonHeld) {
+            pendingDrag = null;
+
+            return;
+        }
+
+        // Wait until the pointer leaves the threshold square, so a click wobble stays a click.
+        const point = { x: domEvent.clientX, y: domEvent.clientY };
+        const isPastThreshold = dragTracker.testDragThreshold({
+            start: pendingDrag.start,
+            point,
+            thresholdPixels: getDragThresholdPixels()
+        });
+
+        if (!isPastThreshold) {
+            return;
+        }
+
+        // Describe the dragged element now, before the page changes anything on the drop.
+        pendingDrag.isActive = true;
+        pendingDrag.sourceChain = newDragSourceChain(pendingDrag);
+
+        // Stop any hover dwell, so no rest over an element is recorded for the rest of the drag.
+        stopHoverDwell();
+    }
+
+    /**
+     * Arms a possible drag when the main button is pressed on an element.
+     *
+     * @remarks
+     * Owns the start of the drag state. Every press replaces what an earlier, unfinished press
+     * left behind. Only the cheap facts are taken here: the press point, the time, and the center
+     * of the element, because most presses end as a click. Respects the `dragAndDrop` toggle.
+     *
+     * @param {MouseEvent} domEvent The mousedown event.
+     * @returns {void}
+     */
+    function onDragPress(domEvent) {
+        // A new press always starts from a clean state.
+        pendingDrag = null;
+
+        // Do nothing until settings have loaded, so toggles are always respected.
+        const isDragEnabled = Boolean(activeSettings) && Boolean(activeSettings.enabledEvents.dragAndDrop);
+
+        if (!isDragEnabled) {
+            return;
+        }
+
+        // Arm only a press that grabs an element, not one that works a field or a scroll bar.
+        const element = getEventTarget(domEvent);
+        const isDragSource = dragTracker.testDragSource({ element, domEvent });
+
+        if (!isDragSource) {
+            return;
+        }
+
+        // Keep only the cheap press facts; the chain is built once the press becomes a drag.
+        pendingDrag = {
+            isActive: false,
+            isNative: false,
+            pressTimestamp: Date.now(),
+            sourceCenter: dragTracker.getElementCenter(element),
+            sourceChain: null,
+            sourceElement: element,
+            start: { x: domEvent.clientX, y: domEvent.clientY }
+        };
+    }
+
+    /**
+     * Records a pointer drag when the main button is released.
+     *
+     * @remarks
+     * Owns the end of a pointer drag. A press that never moved past the threshold is a click and
+     * is left to the click recording. A release that leaves text selected was a text selection.
+     * Otherwise the drop element is the first element under the release point that is not the
+     * dragged element or one of its relatives.
+     *
+     * @param {MouseEvent} domEvent The mouseup event.
+     * @returns {void}
+     */
+    function onDragRelease(domEvent) {
+        // The press ends here whatever it was, so the next press starts clean.
+        const drag = pendingDrag;
+        pendingDrag = null;
+
+        // Only the release of a started pointer drag is recorded here; a native drag ends on drop.
+        const isPointerDrag = Boolean(drag)
+            && drag.isActive
+            && !drag.isNative
+            && domEvent.isTrusted
+            && domEvent.button === 0;
+
+        if (!isPointerDrag) {
+            return;
+        }
+
+        // A press and a move over unhandled text selects that text, which is not a drag and drop.
+        const isTextSelection = dragTracker.testTextSelection();
+
+        if (isTextSelection) {
+            return;
+        }
+
+        // Find the drop element under the release point, skipping the dragged element and its relatives.
+        const point = { x: domEvent.clientX, y: domEvent.clientY };
+        const dropElement = dragTracker.getDropElement({
+            candidates: getElementsAtPoint(point),
+            sourceElement: drag.sourceElement
+        });
+
+        // Commit the pointer drag, so the click the browser fires next is skipped as part of it.
+        sendDragAndDrop({ drag, dropElement, kind: "Pointer", point });
+    }
+
+    /**
+     * Forgets a native drag that ended without a drop.
+     *
+     * @remarks
+     * Owns the cleanup of a cancelled native drag: one released over nothing that accepts it, one
+     * cancelled with Escape, or one dropped into another frame, which records nothing here.
+     *
+     * @returns {void}
+     */
+    function onNativeDragEnd() {
+        // Leave a pointer press alone; only a native drag ends with dragend.
+        const isNativeDrag = Boolean(pendingDrag) && pendingDrag.isNative;
+
+        if (!isNativeDrag) {
+            return;
+        }
+
+        // Forget the undropped drag, so the next press starts from a clean state.
+        pendingDrag = null;
+    }
+
+    /**
+     * Starts a native drag when the browser begins an HTML drag and drop.
+     *
+     * @remarks
+     * Owns the start of a native drag. The browser fires no further mouse events during it, so the
+     * drag is started here, with the source chain, and recorded on drop. The press point and time
+     * are kept when the press armed the drag. A drag of selected text starts on a text node, which
+     * names no element, so it is not recorded. Respects the `dragAndDrop` toggle.
+     *
+     * @param {DragEvent} domEvent The dragstart event.
+     * @returns {void}
+     */
+    function onNativeDragStart(domEvent) {
+        // Take over the press that armed this drag, if any, and start from a clean state.
+        const press = pendingDrag;
+        pendingDrag = null;
+
+        // Do nothing until settings have loaded, so toggles are always respected.
+        const isDragEnabled = Boolean(activeSettings)
+            && Boolean(activeSettings.enabledEvents.dragAndDrop)
+            && domEvent.isTrusted;
+
+        if (!isDragEnabled) {
+            return;
+        }
+
+        // A drag of selected text starts on a text node and has no element to address.
+        const composedPath = typeof domEvent.composedPath === "function"
+            ? domEvent.composedPath()
+            : [];
+        const isElementOrigin = composedPath.length > 0
+            && composedPath[0].nodeType === Node.ELEMENT_NODE;
+
+        if (!isElementOrigin) {
+            return;
+        }
+
+        // Keep the press point and time when a press armed the drag, so the event orders where the
+        // gesture began; otherwise the drag starts here.
+        const element = getEventTarget(domEvent);
+        const pressTimestamp = press
+            ? press.pressTimestamp
+            : Date.now();
+        const start = press
+            ? press.start
+            : { x: domEvent.clientX, y: domEvent.clientY };
+
+        // Start the native drag and describe the dragged element now, before the page reacts to the drop.
+        pendingDrag = {
+            isActive: true,
+            isNative: true,
+            pressTimestamp,
+            sourceCenter: dragTracker.getElementCenter(element),
+            sourceChain: null,
+            sourceElement: element,
+            start
+        };
+        pendingDrag.sourceChain = newDragSourceChain(pendingDrag);
+
+        // No hover dwell runs while the drag lasts.
+        stopHoverDwell();
+    }
+
+    /**
+     * Records a native drag when it is dropped on an element that accepts it.
+     *
+     * @remarks
+     * Owns the end of a native drag. The browser fires drop only on an element whose page accepted
+     * the drag, so a drop always names a drop zone. It runs in the capture phase, before the page
+     * moves anything, so the drop element is described as the user saw it.
+     *
+     * @param {DragEvent} domEvent The drop event.
+     * @returns {void}
+     */
+    function onNativeDrop(domEvent) {
+        // Only a native drag started in this frame is recorded here.
+        const drag = pendingDrag;
+        const isNativeDrag = Boolean(drag) && drag.isNative && domEvent.isTrusted;
+
+        if (!isNativeDrag) {
+            return;
+        }
+
+        // The drag ends with this drop, so the dragend that follows finds nothing to forget.
+        pendingDrag = null;
+
+        // The drop element is the event's own target, unless that is the dragged element itself.
+        const point = { x: domEvent.clientX, y: domEvent.clientY };
+        const dropElement = dragTracker.getDropElement({
+            candidates: [getEventTarget(domEvent)],
+            sourceElement: drag.sourceElement
+        });
+
+        // Commit the native drag; a native drop fires no follow-up click to skip.
+        sendDragAndDrop({ drag, dropElement, kind: "Native", point });
+    }
+
+    /**
+     * Builds and forwards one InvokeDragAndDrop recording.
+     *
+     * @remarks
+     * Owns the drag commit. Pending typing is sent first so it keeps its place before the drag.
+     * The event is stamped with the press time, so it orders where the gesture began. After a
+     * pointer drag the browser fires a click, which the click recording then skips; a native
+     * drop fires none, so the next click after it is recorded as usual.
+     *
+     * @param {object} options Commit inputs.
+     * @param {object} options.drag The finished drag state.
+     * @param {Element|null} options.dropElement The drop element, or null when there is none.
+     * @param {string} options.kind "Native" or "Pointer".
+     * @param {{x: number, y: number}} options.point The release point.
+     * @returns {void}
+     */
+    function sendDragAndDrop(options) {
+        const { drag, dropElement, kind, point } = options;
+
+        // Keep typed text ahead of the drag that followed it.
+        sendPendingTyping();
+
+        // Describe the drop element with its own verified locators; a drag onto nothing has none.
+        let targetChain = null;
+
+        if (dropElement) {
+            targetChain = mapper.newChainFromElement({
+                element: dropElement,
+                trigger: "Drop",
+                point: contract.newPoint({ xPosition: point.x, yPosition: point.y }),
+                locatorSettings: getLocatorSettings()
+            });
+        }
+
+        // Build the event from the dragged element's chain and the drag facts.
+        const descriptor = catalog.newDragAndDropDescriptor({
+            kind,
+            point,
+            sourceCenter: drag.sourceCenter,
+            durationMilliseconds: Date.now() - drag.pressTimestamp,
+            targetChain
+        });
+        const recordingEvent = contract.newRecordingEvent({
+            chain: drag.sourceChain,
+            event: descriptor.event,
+            machineName: document.location.hostname,
+            timestamp: drag.pressTimestamp,
+            type: descriptor.type,
+            value: descriptor.value
+        });
+
+        // Skip the click that follows the release of a pointer drag; a native drop fires none.
+        if (kind === "Pointer") {
+            dragClickSuppressedUntil = Date.now() + DRAG_CLICK_WINDOW_MILLISECONDS;
+        }
+
+        // Forward the drag with both elements, so each is hot-tested under its own identifier.
+        sendRecordingMessage({
+            element: drag.sourceElement,
+            isFrameSwitchTrigger: descriptor.isFrameSwitchTrigger !== false,
+            recordingEvent,
+            targetElement: dropElement
+        });
     }
 
     /**
@@ -1221,6 +1707,39 @@
         });
 
         document.addEventListener("mouseleave", onHoverLeave, {
+            capture: true,
+            passive: true
+        });
+
+        // Record a drag and drop: a press arms it, moving past the threshold or a native drag
+        // starts it, and the release or the drop records it. A native drag that ends without a
+        // drop is forgotten.
+        document.addEventListener("mousedown", onDragPress, {
+            capture: true,
+            passive: true
+        });
+
+        document.addEventListener("mousemove", onDragMove, {
+            capture: true,
+            passive: true
+        });
+
+        document.addEventListener("mouseup", onDragRelease, {
+            capture: true,
+            passive: true
+        });
+
+        document.addEventListener("dragstart", onNativeDragStart, {
+            capture: true,
+            passive: true
+        });
+
+        document.addEventListener("drop", onNativeDrop, {
+            capture: true,
+            passive: true
+        });
+
+        document.addEventListener("dragend", onNativeDragEnd, {
             capture: true,
             passive: true
         });

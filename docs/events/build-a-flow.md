@@ -55,6 +55,7 @@ The button is the first word of the event name. Only the release (`Up`) event pr
 | --- | --- | --- |
 | `Left Up` | `standard` | `InvokeClick` |
 | `Left Up` | `user32`, `coordinate` | `InvokeUser32Click` |
+| `Left Up` with `value.drag` | `standard`, `user32` | `InvokeUser32DragAndDrop` |
 | `Middle Up` | `standard` | `InvokeMiddleClick` |
 | `Middle Up` | `user32`, `coordinate` | `InvokeUser32MiddleClick` |
 | `Right Up` | `standard` | `InvokeContextClick` |
@@ -64,6 +65,7 @@ The button is the first word of the event name. Only the release (`Up`) event pr
 Arguments and locators (`NewMouseRule`):
 
 - In `coordinate` mode the argument is `{{$ --X:<x> --Y:<y>}}`, taken from `value.x` and `value.y`, and the rule has no locator.
+- A drag and drop becomes `InvokeUser32DragAndDrop` in `standard` and `user32` modes, because UI Automation has no drag pattern. The rule names the dragged element in `onElement`. A measured grab point becomes `--Alignment:TopLeft --OffsetX --OffsetY`. The drop is `--Target:<locator>` with `--TargetAlignment:TopLeft --TargetOffsetX --TargetOffsetY`, or `--DeltaX --DeltaY` from the press point when there is no usable target. The corner is the reference because the UIA driver applies offsets to every alignment except its `MiddleCenter` default.
 - Drag and drop is not supported in `coordinate` mode. `InvokeUser32DragAndDrop` needs the element to drag, and a `coordinate` rule has no locator, so a drag is played as a click at the release point. There is a feature request for it: [#37](https://github.com/g4-api/g4-recorders/issues/37).
 - In the other modes the rule gets the `chain.locator`. If it is empty, the builder falls back to `chain.fallbackLocator`.
 - With `user32` mode and `useOffset` on, the builder reads `chain.mouseOffset`. If that is empty it falls back to an event-level `offset`, which current recorders do not send. A non-zero offset gives the argument `{{$ --OffsetX:<x> --OffsetY:<y> --Alignment:TopLeft}}`.
@@ -81,6 +83,7 @@ Chromium events arrive with plugin names already in `event`. The builder keeps t
 | `UpdatePage`, `UndoNavigation`, `RedoNavigation` | none | No |
 | `SwitchWindow`, `CloseWindow` | `<value.index>`, or `0` | No |
 | `InvokeScroll` | `{{$ --direction:<direction> --times:<notches>}}` (defaults: `Down`, `1`) | Yes |
+| `InvokeDragAndDrop` | `{{$ --Target:<drop locator>}}`, plus `--TargetLocator:<type>` for a type other than XPath, or `{{$ --DeltaX:<deltaX> --DeltaY:<deltaY>}}` without a usable drop element | Yes |
 | Any other name, such as `InvokeClick` | none | Yes |
 
 Unknown event names pass through as element actions, so new extension plugins keep their locator. Events without an `event` name are skipped. The full list of names is in [Chromium events](chromium-events.md).
