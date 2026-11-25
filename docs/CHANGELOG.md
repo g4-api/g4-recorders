@@ -24,6 +24,7 @@ All notable user-visible changes to the G4 recorders are listed here. The format
 ### Changed
 
 - The Android and SAP event pages state that drag and drop is not recorded yet, with links to the feature requests [#34](https://github.com/g4-api/g4-recorders/issues/34) and [#35](https://github.com/g4-api/g4-recorders/issues/35).
+- The flow-building page states that UIA drag and drop is not supported in `coordinate` mode, with a link to the feature request [#37](https://github.com/g4-api/g4-recorders/issues/37).
 - The `chain.locator` of a Chromium element event is the best user-facing XPath (label, role and name, placeholder, test hook) instead of the absolute path. The absolute path stays in the locator list as the last resort.
 - A Chromium click on the inner node of a button, link or field is recorded against that control.
 - Chromium paths address SVG elements through `local-name()`, and a target inside a shadow root is recorded as its host with a `shadowPath`.

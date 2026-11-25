@@ -64,6 +64,7 @@ The button is the first word of the event name. Only the release (`Up`) event pr
 Arguments and locators (`NewMouseRule`):
 
 - In `coordinate` mode the argument is `{{$ --X:<x> --Y:<y>}}`, taken from `value.x` and `value.y`, and the rule has no locator.
+- Drag and drop is not supported in `coordinate` mode. `InvokeUser32DragAndDrop` needs the element to drag, and a `coordinate` rule has no locator, so a drag is played as a click at the release point. There is a feature request for it: [#37](https://github.com/g4-api/g4-recorders/issues/37).
 - In the other modes the rule gets the `chain.locator`. If it is empty, the builder falls back to `chain.fallbackLocator`.
 - With `user32` mode and `useOffset` on, the builder reads `chain.mouseOffset`. If that is empty it falls back to an event-level `offset`, which current recorders do not send. A non-zero offset gives the argument `{{$ --OffsetX:<x> --OffsetY:<y> --Alignment:TopLeft}}`.
 
