@@ -98,6 +98,26 @@ namespace G4.Recorders.Uia.Domain.UnitTests.Middlewares
             Assert.AreEqual(150, drag.StartX);
         }
 
+        [TestMethod(DisplayName = "Verify that a drag pressed over no resolved element keeps its press point and " +
+            "its drop element, without a grab offset")]
+        public void MouseDragWithoutSourceTest()
+        {
+            // Arrange: a press that UI Automation resolved to nothing, released over a list.
+            var target = NewChain(locator: TargetLocator, left: 500, top: 200, width: 200, height: 300);
+
+            // Act: describe the drag without a source chain.
+            var drag = MouseDragResolver.NewDrag(source: null, target, start: (140, 123), end: (610, 330));
+
+            // Assert: the press point and the drop element are kept, so the drag replays from the screen point.
+            Assert.AreEqual(140, drag.StartX);
+            Assert.AreEqual(123, drag.StartY);
+            Assert.IsNull(drag.SourceOffsetX);
+            Assert.IsNull(drag.SourceOffsetY);
+            Assert.AreSame(target, drag.Target);
+            Assert.AreEqual(110, drag.TargetOffsetX);
+            Assert.AreEqual(130, drag.TargetOffsetY);
+        }
+
         [TestMethod(DisplayName = "Verify that an element without usable bounds carries no offset, so it is grabbed " +
             "at its center")]
         public void MouseDragMissingBoundsTest()
