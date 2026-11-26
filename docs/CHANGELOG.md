@@ -6,6 +6,11 @@ All notable user-visible changes to the G4 recorders are listed here. The format
 
 ### Added
 
+- The Chromium recorder records a middle click (`auxclick` with button 1) as `InvokeMiddleClick`, with its locators
+  and DOM context, behind a new **Middle Click** event switch that is on by default. Other `auxclick` buttons are
+  ignored: the right button is recorded through `contextmenu`.
+- The release pipeline runs the Android, SAP and UIA domain tests and the Chromium locator lab on Windows before it
+  creates a release, and stops on a failure. The Android app's Kotlin tests keep running in its build job.
 - The Android recorder: a host on port 9958 (`G4.Recorders.Android`) and a recorder app (`G4.Recorders.Android.App`) whose accessibility service sends taps, long presses, field text, scrolls, keyboard closes, activity switches and the Back key (`UndoNavigation`) in the shared contract, with UiAutomator2 XPath locators and a view context snapshot. The host prepares and restores the device over adb, and release assets ship for Windows, Linux and macOS.
 - The monitor app (`G4.Recorders.ClientApp`) can watch the Android hub (`Hubs:AndroidEnabled`, `--android`).
 - Chromium element events carry a Base64 DOM context of the markup around the target on the trigger node (`domContext`, `domContextLength`), with settings in the extension options.
@@ -25,6 +30,10 @@ All notable user-visible changes to the G4 recorders are listed here. The format
 
 ### Changed
 
+- The recorders use `G4.Converters` and `G4.Extensions` 2026.11.25.113. They were at 2026.10.15.82.
+- A push that changes only changelogs or workflow files no longer starts a release.
+- The Android and recipe docs say that `InvokeLongClick` and `SwitchActivity` now replay, and describe how a recorded
+  scroll replays.
 - The Android and SAP event pages state that drag and drop is not recorded yet, with links to the feature requests [#34](https://github.com/g4-api/g4-recorders/issues/34) and [#35](https://github.com/g4-api/g4-recorders/issues/35).
 - UIA drag and drop maps to `InvokeUser32DragAndDrop` in every mode, `coordinate` included, with element points where a locator exists and screen points otherwise ([#37](https://github.com/g4-api/g4-recorders/issues/37)).
 - The `chain.locator` of a Chromium element event is the best user-facing XPath (label, role and name, placeholder, test hook) instead of the absolute path. The absolute path stays in the locator list as the last resort.

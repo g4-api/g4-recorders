@@ -159,7 +159,7 @@ In Windows PowerShell, type `curl.exe` instead of `curl`. The recipes use files 
    ```
 
 8. Start an Appium server with the UiAutomator2 driver, as in [Module 5, Step 6](install-and-operate/05-android-recorder.md#step-6-know-what-replay-needs).
-9. Remove the `SwitchActivity` and `InvokeLongClick` actions from `flow.json`. No plugin replays them yet; the VS Code extension removes them for you through `excludeEvents`.
+9. Keep the `SwitchActivity` and `InvokeLongClick` actions in `flow.json`. The plugins of the same names replay them with the arguments the Hub writes.
 10. Replay the flow.
 
     ```bash

@@ -80,7 +80,7 @@
 
     // The pointer events whose target is found by the pointer position. A click the keyboard
     // fired carries no usable position, so it is resolved by focus instead.
-    const CLICK_EVENT_NAMES = ["click", "dblclick", "contextmenu"];
+    const CLICK_EVENT_NAMES = ["click", "dblclick", "contextmenu", "auxclick"];
 
     // The events whose trigger node carries a DOM context: the element actions a client may want
     // to heal a locator for. Navigation, scroll, window, frame, and form events act on no element
@@ -90,6 +90,7 @@
         "InvokeContextClick",
         "InvokeDoubleClick",
         "InvokeDragAndDrop",
+        "InvokeMiddleClick",
         "MoveMouseCursor",
         "SendKeys"
     ]);
@@ -101,6 +102,7 @@
         "InvokeClick",
         "InvokeContextClick",
         "InvokeDoubleClick",
+        "InvokeMiddleClick",
         "MoveMouseCursor"
     ]);
 

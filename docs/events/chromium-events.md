@@ -15,6 +15,7 @@ Interaction events:
 | `InvokeClick` | click | Mouse |
 | `InvokeDoubleClick` | double click | Mouse |
 | `InvokeContextClick` | right-click / context menu | Mouse |
+| `InvokeMiddleClick` | middle-click (`auxclick` with button 1); other `auxclick` buttons are ignored | Mouse |
 | `InvokeScroll` | wheel/scroll (direction + notches in `value`) | Mouse |
 | `InvokeDragAndDrop` | an element dragged and dropped; see [Drag and drop](#drag-and-drop) | Mouse |
 | `SendKeys` | typed-field commit (focus loss, field change, form submission, or page exit); `value.text` = typed text, password-redactable | Keyboard |
@@ -38,7 +39,7 @@ Navigation events (type `Navigation`, top frame, full-page only):
 
 ## Locators
 
-Every element event carries a ranked list of locators for its target. Each locator was evaluated against the live page when the event was recorded, and only locators that resolve to exactly the target are kept. The events are `InvokeClick`, `InvokeDoubleClick`, `InvokeContextClick`, `InvokeDragAndDrop`, `SendKeys`, `MoveMouseCursor`, `InvokeScroll` and `SubmitForm`. A drag and drop also carries the locators of its drop element.
+Every element event carries a ranked list of locators for its target. Each locator was evaluated against the live page when the event was recorded, and only locators that resolve to exactly the target are kept. The events are `InvokeClick`, `InvokeDoubleClick`, `InvokeContextClick`, `InvokeMiddleClick`, `InvokeDragAndDrop`, `SendKeys`, `MoveMouseCursor`, `InvokeScroll` and `SubmitForm`. A drag and drop also carries the locators of its drop element.
 
 The best XPath is the `chain.locator`. The whole list sits on the trigger node, `chain.path[0].properties`:
 
@@ -169,7 +170,7 @@ The `dragAndDrop` switch on the options page turns the recording on or off, and 
 
 ## DOM context
 
-Element events carry a snapshot of the markup around their target, so a client can heal or optimise the locator later. The events are `InvokeClick`, `InvokeDoubleClick`, `InvokeContextClick`, `SendKeys` and `MoveMouseCursor`. The snapshot sits on the trigger node, `chain.path[0].properties`:
+Element events carry a snapshot of the markup around their target, so a client can heal or optimise the locator later. The events are `InvokeClick`, `InvokeDoubleClick`, `InvokeContextClick`, `InvokeMiddleClick`, `InvokeDragAndDrop`, `SendKeys` and `MoveMouseCursor`. The snapshot sits on the trigger node, `chain.path[0].properties`:
 
 | Property | Type | Description |
 | --- | --- | --- |
