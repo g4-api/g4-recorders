@@ -143,6 +143,8 @@
             click: true,
             doubleClick: true,
             contextMenu: true,
+            // A middle click (auxclick with button 1) replays with InvokeMiddleClick.
+            middleClick: true,
             // Drag and drop is on by default: without it a native drag is lost and a pointer drag
             // is recorded as a stray click.
             dragAndDrop: true,
