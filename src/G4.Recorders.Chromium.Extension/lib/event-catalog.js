@@ -31,6 +31,9 @@
         { domEventName: "click", settingKey: "click" },
         { domEventName: "dblclick", settingKey: "doubleClick" },
         { domEventName: "contextmenu", settingKey: "contextMenu" },
+        // A middle click fires auxclick, not click; the right button also fires auxclick, which contextmenu
+        // already records, so only button 1 becomes an action (see resolveEventDescriptor).
+        { domEventName: "auxclick", settingKey: "middleClick" },
         { domEventName: "keydown", settingKey: "keyDown" },
         { domEventName: "keyup", settingKey: "keyUp" },
         { domEventName: "submit", settingKey: "submit" },
@@ -92,10 +95,19 @@
         const { domEvent } = options;
         const domEventName = domEvent.type;
 
+        // An auxclick of any button other than the middle one (1) is ignored: the right button is
+        // recorded through contextmenu, and the back and forward buttons have no replay action.
+        const isMiddleClick = domEventName === "auxclick" && domEvent.button === 1;
+
+        if (domEventName === "auxclick" && !isMiddleClick) {
+            return null;
+        }
+
         // Mouse-family events share a click-style descriptor with client coordinates.
         const isClickFamily = domEventName === "click"
             || domEventName === "dblclick"
-            || domEventName === "contextmenu";
+            || domEventName === "contextmenu"
+            || isMiddleClick;
 
         if (isClickFamily) {
             return newClickDescriptor(domEvent);
@@ -167,7 +179,8 @@
      *
      * @remarks
      * Compute-only helper. The event name uses the G4 action style: InvokeClick,
-     * InvokeDoubleClick, and InvokeContextClick (right-click / context menu).
+     * InvokeDoubleClick, InvokeContextClick (right-click / context menu), and InvokeMiddleClick
+     * (an auxclick of the middle button).
      *
      * @param {MouseEvent} domEvent The click-family event.
      * @returns {object} The descriptor.
@@ -177,7 +190,8 @@
         const eventNamesByType = {
             click: "InvokeClick",
             dblclick: "InvokeDoubleClick",
-            contextmenu: "InvokeContextClick"
+            contextmenu: "InvokeContextClick",
+            auxclick: "InvokeMiddleClick"
         };
 
         return {

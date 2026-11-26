@@ -8,7 +8,7 @@ This page is the event catalog of the Android recorder. The recorder app on the 
 
 The recorder app runs an Android accessibility service. Android tells the service about every tap, text change, scroll and window change in any app, and about hardware key presses. The service turns each one into a contract event and sends it to the host through `adb reverse`, so the device reaches the host at `localhost:9958`.
 
-The app is a bridge: it sends everything it sees. Clients decide what to keep. The VS Code template leaves out `SwitchActivity` and `InvokeLongClick` through `excludeEvents`, because no plugin replays them yet.
+The app is a bridge: it sends everything it sees. Clients decide what to keep through their own `excludeEvents` lists. Every event below has a replay plugin; the Hub writes `InvokeLongClick` with `{{$ --Duration:<ms>}}` and `SwitchActivity` with `{{$ --Package:<package> --Activity:<activity>}}`.
 
 ## Captured events
 
@@ -90,9 +90,8 @@ The three settings are in the **View context** section of the app's settings scr
 ## Limits
 
 - Drag and drop is not supported yet. A long press followed by a move is not recorded as a drag. There is a feature request for it: [#34](https://github.com/g4-api/g4-recorders/issues/34).
-- `InvokeLongClick` and `SwitchActivity` have no replay plugin yet.
 - Only real key presses reach accessibility services. Back from a hardware key or the emulator's keys is recorded. Back sent with `adb shell input keyevent`, and the back gesture of gesture navigation, send no key event and are not recorded.
-- The G4 `InvokeScroll` plugin reads only its `Left` and `Top` parameters, while the Hub writes `--direction` and `--times`, so a recorded scroll replays as a no-op. This affects Chromium flows the same way.
+- The Hub writes a recorded scroll as `InvokeScroll` with `--Left`, `--Top` and `--Relative`. That plugin scrolls through JavaScript, so it scrolls web pages but not a native Android screen.
 - `notches` counts scroll events, not distance. A fast fling makes many notches.
 - Android 8 reports no scroll distance, so every scroll there is recorded as `Down`.
 - Android hides the content of password fields from accessibility services. With redaction off, `SendKeys` carries what Android reports, which is usually empty.

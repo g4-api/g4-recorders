@@ -17,8 +17,8 @@ data class CatalogEntry(
  * Maps recorded Android interactions to contract event names, types and values.
  *
  * Names follow the G4 action style the Chromium recorder uses, so the Hub passes them through as plugin names. The
- * recorder never leaves an event out for a client: `SwitchActivity` and `InvokeLongClick` have no replay plugin yet,
- * and the clients drop them through their own `excludeEvents` lists.
+ * recorder never leaves an event out for a client; a client drops events through its own `excludeEvents` list. Every
+ * name has a replay plugin, `SwitchActivity` and `InvokeLongClick` included.
  */
 object EventCatalog {
     /** Event name of a tap. */
